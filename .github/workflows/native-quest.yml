@@ -1,0 +1,100 @@
+name: Native Quest build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  libmain:
+    name: Build libmain.so
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Memory and disk diagnostics
+        run: |
+          echo "=== free ==="
+          free -h
+          echo "=== nproc ==="
+          nproc
+          echo "=== df ==="
+          df -h
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build unzip wget
+
+      - name: Download Android NDK r27c (Linux)
+        run: |
+          mkdir -p .tools
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          unzip -q /tmp/ndk.zip -d .tools
+          mv .tools/android-ndk-r27c .tools/ndk
+          rm /tmp/ndk.zip
+
+      - name: Download SDL 2.30.11
+        run: |
+          wget -q -O /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip
+          unzip -q /tmp/sdl.zip -d .tools/sdl
+          rm /tmp/sdl.zip
+
+      - name: Download OpenXR loader AAR
+        run: |
+          wget -q -O /tmp/openxr.aar https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar
+          mkdir -p .tools/openxr
+          unzip -q /tmp/openxr.aar -d .tools/openxr
+          rm /tmp/openxr.aar
+
+      - name: Stub ROM-generated H8 sources
+        run: |
+          # csz_sub.c / csz_io.c are produced from the proprietary ROM.
+          # For native-only CI we provide empty stubs so libmain.so can link.
+          mkdir -p upstream/crszone/gen
+          cat > upstream/crszone/gen/csz_sub.c << 'STUB'
+          #include "tc2_h8.h"
+          void tc2sub_run(h8_cpu *c) { (void)c; }
+          STUB
+          cat > upstream/crszone/gen/csz_io.c << 'STUB'
+          #include "tc2_h8.h"
+          void tc2io_run(h8_cpu *c) { (void)c; }
+          STUB
+
+      - name: Configure
+        run: |
+          mkdir -p build/native
+          cmake -Wno-dev -Wno-deprecated \
+            -S quest -B build/native -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-29 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release \
+            2>&1 | tee build/cmake-configure.log
+
+      - name: Build libmain.so (serial)
+        run: |
+          cmake --build build/native --parallel 1 2>&1 | tee build/ninja-build.log
+
+      - name: Upload libmain.so
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmain-so
+          path: build/native/libmain.so
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build/cmake-configure.log
+            build/ninja-build.log
+          if-no-files-found: ignore

@@ -16,3 +16,18 @@ upstream/*/extracted/
 upstream/*/*.bin
 upstream/*/gen/csz_sub.c
 upstream/*/gen/csz_io.c
+
+# Proprietary ROMs and extracted content
+*.zip
+!tools/**/*.zip
+crszone.zip
+namco_csz1.zip
+upstream/*/extracted/
+*.bin
+
+# Signing and secrets
+*.keystore
+*.jks
+*.pem
+*.key
+debug.keystore
