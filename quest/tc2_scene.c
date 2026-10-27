@@ -177,7 +177,7 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
     /* Aggressive VR aiming: accept a wide range outside the original arcade frustum
        and always clamp into the playable area. This lets you shoot well past the
        original edges instead of having shots rejected. */
-    const float margin = 0.45f;  /* ~45% extra on each side */
+    const float margin = 0.80f;  /* ~80% extra on each side — allow well off-screen aims */
     if(*nx < -margin || *nx > 1.f + margin || *ny < -margin || *ny > 1.f + margin)
         return false;
     *nx = fmaxf(0.001f, fminf(0.999f, *nx));
