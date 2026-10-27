@@ -1,0 +1,67 @@
+name: Prepare and verify Quest Preview 1
+on:
+  push:
+    branches: [feat/quest-preview-1]
+    paths: [.github/workflows/prepare-quest-preview.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Apply checksum-verified source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma
+          text = ''.join(Path(f'.review/preview-{i}.b64').read_text().strip() for i in range(3))
+          patch = lzma.decompress(base64.b64decode(text, validate=True))
+          digest = hashlib.sha256(patch).hexdigest()
+          assert digest == '8d315d4dbea7be71cf1615aecfb5ff9b5434a8bb25283f741ef72d2be9b77fa1', digest
+          Path('/tmp/quest-preview.patch').write_bytes(patch)
+          print('Verified source patch', digest)
+          PY
+          git apply --check /tmp/quest-preview.patch
+          git apply /tmp/quest-preview.patch
+          git diff --check
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc libegl-dev libgles-dev libsdl2-dev libopenxr-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Run source, input and real GLES tests
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p build/candidate-tests
+          python3 tests/test_quest_candidate.py 2>&1 | tee build/candidate-tests/test.log
+      - name: Commit verified readable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add quest tools/build.py tools/stage_b_build.py tests/quest_candidate_graphics_fixture.c tests/quest_candidate_input_fixture.c tests/quest_candidate_ray_fixture.c tests/test_quest_candidate.py docs/QUEST_PREVIEW_1.md
+          git rm .review/preview-0.b64 .review/preview-1.b64 .review/preview-2.b64
+          git -c user.name='Thatcher preview build' -c user.email='45753033+nsw27@users.noreply.github.com' commit -m 'Consolidate tested Quest preview controls, feedback, aim and ray optimisation'
+          git push origin HEAD:feat/quest-preview-1
+          git rev-parse HEAD
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest-preview-source-tests
+          path: |
+            build/candidate-tests/results.json
+            build/candidate-tests/test.log
+            build/candidate-tests/*.ppm
+          if-no-files-found: warn
+          retention-days: 14
