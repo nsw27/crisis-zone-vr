@@ -22,7 +22,7 @@ include(tc2_sources.cmake)
 add_library(main SHARED quest_main.c ${TC2_SOURCES})
 
 target_compile_definitions(main PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
-target_compile_options(main PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
+target_compile_options(main PRIVATE -O3 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
 target_include_directories(main PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
 add_library(openxr_loader SHARED IMPORTED)
 set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so")

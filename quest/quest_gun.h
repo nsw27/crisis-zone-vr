@@ -13,9 +13,9 @@ void qgun_shutdown(void);
 
 /* Fast slide kick, then a smooth spring return; independent of display rate. */
 static inline float qgun_recoil(float age_ms){
-    if(age_ms<0||age_ms>=220)return 0;
-    if(age_ms<22)return sinf(age_ms*(1.570796327f/22.f));
-    float t=(age_ms-22.f)/198.f;return 1-t*t*(3-2*t);
+    if(age_ms<0||age_ms>=280)return 0;
+    if(age_ms<28)return sinf(age_ms*(1.570796327f/28.f));
+    float t=(age_ms-28.f)/252.f;return 1-t*t*(3-2*t);
 }
 
 /* Short local muzzle flash, driven by accepted arcade shots, never by the

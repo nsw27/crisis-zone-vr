@@ -169,7 +169,7 @@ static int finish(poly *p, const tc2_render_entry *e, int hsort, uint32_t polysh
       /* Experimental VR pre-activation: TCVR_WIDE_FOV or TC2_XYCULL=0 keeps more geometry
          so objects appear earlier when you look/aim outside the original arcade view. */
       extern int qvr_wide_fov_enabled;
-      if ((qvr_wide_fov_enabled || getenv("TCVR_WIDE_FOV")) && lim > 0) lim = 0.f;
+      if ((qvr_wide_fov_enabled || getenv("TCVR_WIDE_FOV")) && lim > 0) lim = 8192.f;  /* keep more geometry without fully disabling */
       if (lim > 0 && (all || p->blend)) for (int i = 0; i < p->n; i++) if (p->pv[i].x > lim || p->pv[i].x < -lim || p->pv[i].y > lim || p->pv[i].y < -lim) return 0; }
     int zsort;
     switch (hsort) { case 0: zsort = (int)(minz + 0.5f); break; case 1: zsort = (int)(maxz + 0.5f); break; default: zsort = (int)(0.5f * (minz + maxz) + 0.5f); }
@@ -186,11 +186,17 @@ static int finish(poly *p, const tc2_render_entry *e, int hsort, uint32_t polysh
     p->index = (uint32_t)GNPOLY;
     p->vp_size_x = e->vp_size_x; p->vp_size_y = e->vp_size_y; p->vp_offset_x = e->vp_offset_x; p->vp_offset_y = e->vp_offset_y;
     p->entry = (int)(e - FS->list.e); p->model = e->type == TC2_RE_MODEL ? e->model : -1;
+    /* Fade in newly appeared models (8 frames). */
+    extern int qvr_model_fade_frames(int);
+    int f = qvr_model_fade_frames(p->model);
+    if(f > 0){ p->alpha_enabled = 1; p->blend = 1; }
     return 1;
 }
 
 static void render_model(const tc2_render_entry *e)
 {
+    extern int qvr_model_fade_frames(int model);
+    int fade = qvr_model_fade_frames(e->model);
     const int blend = e->model2 != 0;
     const uint32_t adr = ptrom[e->model], adr2 = ptrom[e->model2];
     if (adr >= ptrom_limit || adr2 >= ptrom_limit) return;

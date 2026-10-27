@@ -130,8 +130,8 @@ void qgun_draw(const float view[16],const float projection[16],V3 position,Q4 ro
     /* Recoil is visual only: it cannot change the game's shot coordinates. */
     float kick=fminf(1,fmaxf(0,recoil));
     if(!mesh->articulated){
-        position=add(position,rotate(rotation,v3(0,0,.028f*kick)));
-        rotation=product(rotation,(Q4){sinf(.09f*kick),0,0,cosf(.09f*kick)});
+        position=add(position,rotate(rotation,v3(0,0,.042f*kick)));
+        rotation=product(rotation,(Q4){sinf(.14f*kick),0,0,cosf(.14f*kick)});
     }
     V3 x=rotate(rotation,v3(1,0,0)),y=rotate(rotation,v3(0,1,0)),z=rotate(rotation,v3(0,0,1));
     float model[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,position.x,position.y,position.z,1};
@@ -147,7 +147,7 @@ void qgun_draw(const float view[16],const float projection[16],V3 position,Q4 ro
         GLint src_rgb,dst_rgb,src_a,dst_a;glGetIntegerv(GL_BLEND_SRC_RGB,&src_rgb);glGetIntegerv(GL_BLEND_DST_RGB,&dst_rgb);glGetIntegerv(GL_BLEND_SRC_ALPHA,&src_a);glGetIntegerv(GL_BLEND_DST_ALPHA,&dst_a);
         glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE);glDepthMask(GL_FALSE);
         glUseProgram(flash_program);glUniformMatrix4fv(f_view,1,GL_FALSE,view);glUniformMatrix4fv(f_projection,1,GL_FALSE,projection);glUniformMatrix4fv(f_model,1,GL_FALSE,model);
-        glUniform3f(f_tip,mesh->muzzle.x,mesh->muzzle.y,mesh->muzzle.z);glUniform1f(f_size,selected==QGUN_MACHINE_GUN?.095f:.075f);glUniform1f(f_strength,fminf(1.6f,flash*1.3f));
+        glUniform3f(f_tip,mesh->muzzle.x,mesh->muzzle.y,mesh->muzzle.z);glUniform1f(f_size,selected==QGUN_MACHINE_GUN?.110f:.090f);glUniform1f(f_strength,fminf(1.6f,flash*1.3f));
         glBindVertexArray(flash_vao);glDrawArrays(GL_TRIANGLES,0,48);
         glDepthMask(GL_TRUE);glDisable(GL_BLEND);glBlendFuncSeparate(src_rgb,dst_rgb,src_a,dst_a);
     }

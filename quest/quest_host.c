@@ -261,13 +261,21 @@ static void set_player_side(int side){
 }
 static void adjust_horizontal(int direction){
     if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution((options.resolution+direction+QRESOLUTION_COUNT)%QRESOLUTION_COUNT);
-    else if(options_page==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
-    else set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
+    else if(options_page==1){
+        if(menu_selected==0)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+        else if(menu_selected==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
+        else if(menu_selected==2)options.texture_filtering=!options.texture_filtering;
+        else if(menu_selected==3)toggle_wide_fov();
+    }
+    else {
+        if(menu_selected==0)set_gun_pitch(options.gun_pitch+direction);
+        else if(menu_selected==1)set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
+        else if(menu_selected==2)cycle_aim_guide();
+        else if(menu_selected==3)options.physical_crouch=!options.physical_crouch;
+    }
 }
 static void adjust_vertical(int direction){
-    if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
-    if(options_page==1)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
-    else set_gun_pitch(options.gun_pitch+direction);
+    adjust_horizontal(direction);
 }
 static void reset_page_setting(void){
     if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution(0);
@@ -278,6 +286,9 @@ static void shot_feedback(uint64_t now){
     recoil_started=now;
     if(options.tracer_enabled&&!options.laser_enabled&&focused&&!paused&&gun_tracked&&aim_valid)
         qtracer_start(&tracer,gun_origin,gun_hit,now);
+    /* Short red impact marker at the hit point for better shot confirmation. */
+    if(focused&&!paused&&gun_tracked&&aim_valid)
+        qgl_pointer(gun_hit,add(gun_hit,v3(0,0.02f,0)));
 }
 static bool action(XrAction *out,const char *name,const char *label,XrActionType type,bool both_hands){
     XrActionCreateInfo ci={XR_TYPE_ACTION_CREATE_INFO};ci.actionType=type;
@@ -398,7 +409,7 @@ static void adjust_view_distance(XrTime time){
            Hold further or click to change page (kept simple for now). */
         menu_selected += (y>0 ? 1 : -1);
         if(menu_selected < 0) menu_selected = 0;
-        if(menu_selected > 4) menu_selected = 4;
+        if(menu_selected > 6) menu_selected = 6;
         page_armed = false;
         return;
     }
@@ -868,7 +879,7 @@ void ss22_input_update(void){
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
-    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(tc2_game.gun_x0+fminf(1,fmaxf(0,nx))*tc2_game.gun_xw);g_ss22_gun_y=(uint16_t)(tc2_game.gun_y0+fminf(1,fmaxf(0,ny))*tc2_game.gun_yh);
+    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(tc2_game.gun_x0+nx*tc2_game.gun_xw);g_ss22_gun_y=(uint16_t)(tc2_game.gun_y0+ny*tc2_game.gun_yh);
     tc2_inputs=bits;
 }
 void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
@@ -886,7 +897,7 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
 }
 #ifndef TCVR_INPUT_TEST
 /* PORT: Crisis Zone holds its solenoid high for a burst; refresh feedback at 10 Hz. */
-void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool firing=(outputs&2)&&focused&&!paused;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,62000,90);}}
+void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool firing=(outputs&2)&&focused&&!paused;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,65535,110);}}
 void ss22_out_close(void){}
 bool ss22_host_active(void){return active;}
 bool ss22_host_restart_requested(void){return false;}

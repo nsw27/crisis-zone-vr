@@ -28,6 +28,9 @@ static float effect_depth[TC2_RENDER_MAX];
 static int letterbox_top,letterbox_bottom=480;
 /* Retained through title screens with no polygons. */
 static Camera main_camera={320,240,772.53125f};
+static int fade_models[64];
+static int fade_frames[64];
+static int fade_count;
 static bool camera_valid(Camera c){return isfinite(c.f)&&c.f>1&&isfinite(c.cx)&&isfinite(c.cy);}
 static Camera camera(const tc2_built *b,const tc2_poly *p){
     if(p->entry<0||p->entry>=b->fs.list.count)return main_camera;
@@ -90,13 +93,44 @@ void qvr_scene_prepare(const tc2_built *b){
        Set TCVR_WIDE_FOV=1 (or a float > 1) to expand effective FOV so more
        geometry is retained before the original arcade camera would have pointed there.
        Helps reduce pop-in when you look/aim early. Default off. */
-    float wide_fov = qvr_wide_fov_enabled ? 1.55f : 1.f;
+    float wide_fov = qvr_wide_fov_enabled ? 1.85f : 1.f;
     const char *e = getenv("TCVR_WIDE_FOV");
     if(e){
         float v = strtof(e, NULL);
         if(isfinite(v) && v > 0.5f && v < 4.f) wide_fov = v;
         else if(*e == '1') wide_fov = 1.35f;
     }
+    /* Track models that just appeared and fade them in over a few frames. */
+    static int prev_models[256];
+    static int prev_count = 0;
+    int cur_models[256];
+    int cur_count = 0;
+    for(int i=0;i<b->fs.list.count && cur_count<256;i++){
+        const tc2_render_entry *e=&b->fs.list.e[i];
+        if(e->type==TC2_RE_MODEL) cur_models[cur_count++] = e->model;
+    }
+    /* Age existing fades and drop finished ones. */
+    int kept = 0;
+    for(int i=0;i<fade_count;i++){
+        if(fade_frames[i] > 0){ fade_frames[i]--; kept++; }
+        else { fade_models[i] = -1; }
+    }
+    /* Compact. */
+    int w = 0;
+    for(int i=0;i<fade_count;i++) if(fade_models[i] >= 0){ fade_models[w]=fade_models[i]; fade_frames[w]=fade_frames[i]; w++; }
+    fade_count = w;
+    /* Add newly appeared models. */
+    for(int i=0;i<cur_count && fade_count<64;i++){
+        int found=0;
+        for(int j=0;j<prev_count;j++) if(prev_models[j]==cur_models[i]){found=1;break;}
+        if(!found){ fade_models[fade_count]=cur_models[i]; fade_frames[fade_count]=8; fade_count++; }
+    }
+    memcpy(prev_models, cur_models, sizeof(int)*cur_count);
+    prev_count = cur_count;
+    /* Export for the render path. */
+    extern int qvr_model_fade_frames(int model);
+    /* (definition below) */
+
     zone_select=csz_zone_select(&b->fs);
     if(zone_select)for(int i=0;i<b->fs.list.count;i++){
         const tc2_render_entry *e=&b->fs.list.e[i];
@@ -173,15 +207,21 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
         if(qvr_flat_view)c=(Camera){320,240,500};
     }
     if(projected.z>=-1e-6f)return false;
-    /* Use a wide fixed projection for aiming so extreme left/right angles
-       still produce valid coordinates. The original camera FOV was too narrow. */
-    float wide_f = c.f * 2.2f;
+    /* Use a wide fixed projection so extreme angles produce coordinates
+       that can fall outside the original 0-1 arcade range. */
+    float wide_f = c.f * 2.8f;
     *nx=(320.f+wide_f*projected.x/-projected.z)/640.f;
     *ny=(240.f-wide_f*projected.y/-projected.z)/480.f;
-    /* Accept a very wide range and clamp into the playable area. */
-    if(*nx < -1.5f || *nx > 2.5f || *ny < -1.5f || *ny > 2.5f)
+    /* Accept a wide range and only soft-limit extremes so shots can land
+       past the original screen edges instead of being pulled back. */
+    if(*nx < -2.0f || *nx > 3.0f || *ny < -2.0f || *ny > 3.0f)
         return false;
-    *nx = fmaxf(0.001f, fminf(0.999f, *nx));
-    *ny = fmaxf(0.001f, fminf(0.999f, *ny));
+    *nx = fmaxf(-1.8f, fminf(2.8f, *nx));
+    *ny = fmaxf(-1.8f, fminf(2.8f, *ny));
     return true;
+}
+
+int qvr_model_fade_frames(int model){
+    for(int i=0;i<fade_count;i++) if(fade_models[i]==model) return fade_frames[i];
+    return 0;
 }
