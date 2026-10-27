@@ -82,6 +82,11 @@ def package(assets, rom, bundle_roms=True, native_dir=None):
     (output.parent/'build-info.json').write_text(json.dumps(report,indent=2)+'\n')
     output.with_suffix('.apk.sha256').write_text(report['sha256']+'  '+output.name+'\n',encoding='ascii')
     shutil.copy2(ROOT/'docs/VALIDATION.md',output.parent/'VALIDATION.md')
+    report['source_commit']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    report['native_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in libs.glob('*.so')}
+    report['unstripped_libmain_bytes']=(native/'libmain.so').stat().st_size
+    report['package_id']=manifest.get('package')
+    (output.parent/'build-info.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))
     return output
 

@@ -16,21 +16,68 @@ float qvr_world_scale=1.f;
  * is required. WORLD SIZE remains adjustable. */
 float qvr_units_per_meter=2.f/3.f;
 float qvr_view_distance;
-int qvr_wide_fov_enabled = 1;  /* default ON; toggled from options */
+int qvr_wide_fov_enabled; /* Legacy setting retained for source compatibility; no projection scaling. */
 static V3 world_vertex(V3 v){return sub(mul(v,qvr_world_scale),v3(0,0,qvr_view_distance));}
 typedef struct {float cx,cy,f;} Camera;
 typedef struct {V3 a,b,c;Camera cam;} Triangle;
 static Triangle triangles[TC2_MAX_POLYS*6];
 static int triangle_count;
+/* Conservative 32-triangle boxes. No sorting, approximate hits, or cached results. */
+enum { RAY_GROUP=32 };
+typedef struct {float lo[3],hi[3];} RayBounds;
+static RayBounds ray_bounds[(TC2_MAX_POLYS*6+RAY_GROUP-1)/RAY_GROUP];
+static unsigned long long ray_queries,ray_exact,ray_possible;
+void qvr_ray_stats(unsigned long long *queries,unsigned long long *exact,unsigned long long *possible){
+    *queries=ray_queries;*exact=ray_exact;*possible=ray_possible;
+}
+static void build_ray_bounds(void){
+    for(int first=0;first<triangle_count;first+=RAY_GROUP){
+        RayBounds *b=&ray_bounds[first/RAY_GROUP];
+        for(int k=0;k<3;k++){b->lo[k]=FLT_MAX;b->hi[k]=-FLT_MAX;}
+        int end=first+RAY_GROUP;if(end>triangle_count)end=triangle_count;
+        for(int i=first;i<end;i++){
+            V3 v[3]={triangles[i].a,triangles[i].b,triangles[i].c};
+            for(int j=0;j<3;j++){float xyz[3]={v[j].x,v[j].y,v[j].z};
+                for(int k=0;k<3;k++){b->lo[k]=fminf(b->lo[k],xyz[k]);b->hi[k]=fmaxf(b->hi[k],xyz[k]);}}
+        }
+        for(int k=0;k<3;k++){
+            float pad=1e-4f*(1+fmaxf(fabsf(b->lo[k]),fabsf(b->hi[k])));
+            b->lo[k]-=pad;b->hi[k]+=pad;
+        }
+    }
+}
+static bool ray_box(V3 origin,V3 direction,const RayBounds *b){
+    double o[3]={origin.x,origin.y,origin.z},d[3]={direction.x,direction.y,direction.z};
+    double low=0,high=DBL_MAX;
+    for(int k=0;k<3;k++){
+        if(d[k]==0){if(o[k]<b->lo[k]||o[k]>b->hi[k])return false;continue;}
+        double a=(b->lo[k]-o[k])/d[k],c=(b->hi[k]-o[k])/d[k];
+        if(a>c){double t=a;a=c;c=t;}if(a>low)low=a;if(c<high)high=c;
+        if(high<low)return false;
+    }
+    return true;
+}
+static int nearest_triangle(V3 origin,V3 direction,float *nearest){
+    int found=-1;ray_queries++;ray_possible+=triangle_count;
+    for(int first=0;first<triangle_count;first+=RAY_GROUP){
+#ifndef TCVR_RAY_REFERENCE
+        if(!ray_box(origin,direction,&ray_bounds[first/RAY_GROUP]))continue;
+#endif
+        int end=first+RAY_GROUP;if(end>triangle_count)end=triangle_count;
+        for(int i=first;i<end;i++){
+            Triangle *t=&triangles[i];float distance=*nearest;ray_exact++;
+            if(ray_triangle(origin,direction,t->a,t->b,t->c,&distance)&&distance<*nearest){*nearest=distance;found=i;}
+        }
+    }
+    return found;
+}
+
 static const tc2_built *frame;
 static bool zone_select;
 static float effect_depth[TC2_RENDER_MAX];
 static int letterbox_top,letterbox_bottom=480;
 /* Retained through title screens with no polygons. */
 static Camera main_camera={320,240,772.53125f};
-static int fade_models[64];
-static int fade_frames[64];
-static int fade_count;
 static bool camera_valid(Camera c){return isfinite(c.f)&&c.f>1&&isfinite(c.cx)&&isfinite(c.cy);}
 static Camera camera(const tc2_built *b,const tc2_poly *p){
     if(p->entry<0||p->entry>=b->fs.list.count)return main_camera;
@@ -89,48 +136,6 @@ const tc2_built *qvr_current_frame(void){return frame;}
 void qvr_scene_prepare(const tc2_built *b){
     frame=b;triangle_count=0;zone_select=false;memset(effect_depth,0,sizeof effect_depth);
     letterbox_top=0;letterbox_bottom=480;if(!b)return;
-    /* Experimental wider interest region for VR.
-       Set TCVR_WIDE_FOV=1 (or a float > 1) to expand effective FOV so more
-       geometry is retained before the original arcade camera would have pointed there.
-       Helps reduce pop-in when you look/aim early. Default off. */
-    float wide_fov = qvr_wide_fov_enabled ? 1.85f : 1.f;
-    const char *e = getenv("TCVR_WIDE_FOV");
-    if(e){
-        float v = strtof(e, NULL);
-        if(isfinite(v) && v > 0.5f && v < 4.f) wide_fov = v;
-        else if(*e == '1') wide_fov = 1.35f;
-    }
-    /* Track models that just appeared and fade them in over a few frames. */
-    static int prev_models[256];
-    static int prev_count = 0;
-    int cur_models[256];
-    int cur_count = 0;
-    for(int i=0;i<b->fs.list.count && cur_count<256;i++){
-        const tc2_render_entry *e=&b->fs.list.e[i];
-        if(e->type==TC2_RE_MODEL) cur_models[cur_count++] = e->model;
-    }
-    /* Age existing fades and drop finished ones. */
-    int kept = 0;
-    for(int i=0;i<fade_count;i++){
-        if(fade_frames[i] > 0){ fade_frames[i]--; kept++; }
-        else { fade_models[i] = -1; }
-    }
-    /* Compact. */
-    int w = 0;
-    for(int i=0;i<fade_count;i++) if(fade_models[i] >= 0){ fade_models[w]=fade_models[i]; fade_frames[w]=fade_frames[i]; w++; }
-    fade_count = w;
-    /* Add newly appeared models. */
-    for(int i=0;i<cur_count && fade_count<64;i++){
-        int found=0;
-        for(int j=0;j<prev_count;j++) if(prev_models[j]==cur_models[i]){found=1;break;}
-        if(!found){ fade_models[fade_count]=cur_models[i]; fade_frames[fade_count]=8; fade_count++; }
-    }
-    memcpy(prev_models, cur_models, sizeof(int)*cur_count);
-    prev_count = cur_count;
-    /* Export for the render path. */
-    extern int qvr_model_fade_frames(int model);
-    /* (definition below) */
-
     zone_select=csz_zone_select(&b->fs);
     if(zone_select)for(int i=0;i<b->fs.list.count;i++){
         const tc2_render_entry *e=&b->fs.list.e[i];
@@ -164,7 +169,6 @@ void qvr_scene_prepare(const tc2_built *b){
         if(k<nc)candidates[k].count+=(unsigned)(p->n-2);
     }
     unsigned best=0;for(int i=0;i<nc;i++)if(candidates[i].count>best){main_camera=candidates[i].cam;best=candidates[i].count;}
-    (void)wide_fov;
     float low=FLT_MAX,high=0;
     for(int i=0;i<b->npoly;i++){
         const tc2_poly *p=&b->polys[i];if(!world(b,p)||p->n<3||p->n>8)continue;
@@ -178,6 +182,7 @@ void qvr_scene_prepare(const tc2_built *b){
         for(int j=1;j+1<p->n&&triangle_count<(int)(sizeof triangles/sizeof *triangles);j++)
             triangles[triangle_count++]=(Triangle){v[0],v[j],v[j+1],camera(b,p)};
     }
+    build_ray_bounds();
     /* A screen-space effect is not a solid target. Resolve it only after
      * building the world cache, from the game's optical camera through its
      * screen anchor. Both eyes then see it at the same depth as that surface. */
@@ -186,42 +191,34 @@ void qvr_scene_prepare(const tc2_built *b){
         if(e->v[2]<=0)continue;
         V3 d=v3((float)e->v[0]/e->v[2],(float)e->v[1]/e->v[2],-1);
         float nearest=FLT_MAX;
-        for(int j=0;j<triangle_count;j++)
-            ray_triangle(v3(0,0,0),d,triangles[j].a,triangles[j].b,triangles[j].c,&nearest);
+        nearest_triangle(v3(0,0,0),d,&nearest);
         if(nearest<FLT_MAX)effect_depth[i]=nearest;
     }
     static unsigned frames;
     if(++frames%300==0)fprintf(stderr,"[TC2VR] geometry polygons=%d triangles=%d camera=%.3f,%.3f,%.3f depth=%.3f..%.3f m units/m=%.3f\n",b->npoly,triangle_count,main_camera.cx,main_camera.cy,main_camera.f,triangle_count?low:0,high,qvr_units_per_meter);
 }
 bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
-    float nearest=FLT_MAX;Camera c=main_camera;bool found=false;
-    V3 world_origin=mul(add(o,v3(0,0,qvr_view_distance)),1.f/qvr_world_scale),projected;
-    if(!qvr_flat_view)for(int i=0;i<triangle_count;i++){
-        Triangle *t=&triangles[i];float distance=nearest;
-        if(ray_triangle(world_origin,d,t->a,t->b,t->c,&distance)&&distance<nearest){nearest=distance;c=t->cam;found=true;}
-    }
-    if(found){projected=add(world_origin,mul(d,nearest));*hit=world_vertex(projected);}
+    *nx=*ny=.5f;*hit=o;
+    if(!isfinite(o.x)||!isfinite(o.y)||!isfinite(o.z)||
+       !isfinite(d.x)||!isfinite(d.y)||!isfinite(d.z)||
+       !isfinite(qvr_world_scale)||qvr_world_scale<=0||!isfinite(qvr_view_distance))return false;
+    bool panel=qvr_flat_view||zone_select||triangle_count==0;
+    V3 base=panel?o:mul(add(o,v3(0,0,qvr_view_distance)),1.f/qvr_world_scale),projected;
+    float nearest=FLT_MAX;Camera c=main_camera;
+    int found=panel?-1:nearest_triangle(base,d,&nearest);
+    if(found>=0){c=triangles[found].cam;projected=add(base,mul(d,nearest));*hit=world_vertex(projected);}
     else {
         if(d.z>=-1e-5f)return false;
-        float t=(-2.5f-o.z)/d.z;if(t<=0)return false;
-        projected=*hit=add(o,mul(d,t));
+        float t=(-2.5f-base.z)/d.z;if(!isfinite(t)||t<=0)return false;
+        projected=add(base,mul(d,t));*hit=panel?projected:world_vertex(projected);
         if(qvr_flat_view)c=(Camera){320,240,500};
     }
-    if(projected.z>=-1e-6f)return false;
-    /* Project with the real optical camera. Scaling the focal length made
-       center aim jump. A small overflow is kept so a look just past the
-       original edges still maps to the edge of the legal gun range. */
-    *nx=(320.f+c.f*projected.x/-projected.z)/640.f;
-    *ny=(240.f-c.f*projected.y/-projected.z)/480.f;
-    const float margin = 0.15f;
-    if(*nx < -margin || *nx > 1.f+margin || *ny < -margin || *ny > 1.f+margin)
-        return false;
-    *nx = fmaxf(-margin, fminf(1.f+margin, *nx));
-    *ny = fmaxf(-margin, fminf(1.f+margin, *ny));
-    return true;
-}
-
-int qvr_model_fade_frames(int model){
-    for(int i=0;i<fade_count;i++) if(fade_models[i]==model) return fade_frames[i];
-    return 0;
+    if(!camera_valid(c)||!isfinite(projected.x)||!isfinite(projected.y)||
+       !isfinite(projected.z)||projected.z>=-1e-6f)return false;
+    float x=(c.cx+c.f*projected.x/-projected.z)/640.f;
+    float y=(c.cy-c.f*projected.y/-projected.z)/480.f;
+    if(!isfinite(x)||!isfinite(y))return false;
+    *nx=fmaxf(0,fminf(1,x));*ny=fmaxf(0,fminf(1,y));
+    /* Outside the arcade hit region is a miss, not a fake edge hit. */
+    return x>=0&&x<=1&&y>=0&&y<=1;
 }

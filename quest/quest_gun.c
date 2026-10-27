@@ -121,7 +121,8 @@ bool qgun_init(const char *path){
     if(qgun_load_weapon(QGUN_PISTOL,path)&&init_flash())return true;
     qgun_shutdown();return false;
 }
-void qgun_select(QGunKind kind){if(kind>=0&&kind<QGUN_COUNT)selected=kind;}
+bool qgun_available(QGunKind kind){return kind>=0&&kind<QGUN_COUNT&&meshes[kind].vao!=0;}
+void qgun_select(QGunKind kind){selected=qgun_available(kind)?kind:QGUN_PISTOL;}
 QGunKind qgun_selected(void){return selected;}
 V3 qgun_muzzle(V3 position,Q4 rotation){return add(position,rotate(rotation,current_mesh()->muzzle));}
 void qgun_draw(const float view[16],const float projection[16],V3 position,Q4 rotation,float recoil,float trigger_pull,float flash){

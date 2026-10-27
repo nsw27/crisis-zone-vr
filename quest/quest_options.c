@@ -7,10 +7,20 @@
 
 void qoptions_load(const char *path,QOptions *options){
     /* New/missing settings use laser assistance. Explicit saved OFF stays OFF. */
-    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1,.enhanced=true,.machine_gun=true,.wide_fov=true};
+    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1,.enhanced=false,.machine_gun=true,.wide_fov=false,.haptics=75,.recoil_strength=75,.muzzle_flash=true};
     FILE *f=fopen(path,"r");if(!f)return;
     char line[128],extra;int value;
     while(fgets(line,sizeof line,f)){
+        const char *extra_keys[]={"haptics=","recoil_strength=","refresh_preset=","muzzle_flash="};
+        int limits[]={100,100,3,1};
+        for(int k=0;k<4;k++){
+            size_t n=strlen(extra_keys[k]);if(strncmp(line,extra_keys[k],n))continue;
+            char *end;errno=0;long v=strtol(line+n,&end,10);
+            if(end==line+n||errno||v<0||v>limits[k])continue;
+            while(isspace((unsigned char)*end))end++;if(*end)continue;
+            if(k==0)options->haptics=(int)v;else if(k==1)options->recoil_strength=(int)v;
+            else if(k==2)options->refresh_preset=(int)v;else options->muzzle_flash=v!=0;
+        }
         if(!strncmp(line,"resolution=",11)){
             char *end;errno=0;long preset=strtol(line+11,&end,10);
             if(end!=line+11&&!errno&&preset>=0&&preset<QRESOLUTION_COUNT){
@@ -70,6 +80,8 @@ void qoptions_load(const char *path,QOptions *options){
 bool qoptions_save(const char *path,const QOptions *options){
     FILE *f=fopen(path,"w");if(!f)return false;
     bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\nenhanced=%d\nmachine_gun=%d\nwide_fov=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side,options->enhanced?1:0,options->machine_gun?1:0,options->wide_fov?1:0)>0;
+    if(fprintf(f,"haptics=%d\nrecoil_strength=%d\nrefresh_preset=%d\nmuzzle_flash=%d\n",
+               options->haptics,options->recoil_strength,options->refresh_preset,options->muzzle_flash?1:0)<0)ok=false;
     if(fclose(f))ok=false;
     return ok;
 }

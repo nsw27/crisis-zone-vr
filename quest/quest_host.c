@@ -29,6 +29,7 @@
 #include "quest_refresh.h"
 #include "quest_ui.h"
 #include "quest_tracer.h"
+#include "quest_feedback.h"
 #include "tc2_game.h"
 static const int qtc2_cabinet_side=1;
 
@@ -91,6 +92,8 @@ static Q4 origin_rotation={0,0,0,1},gun_rotation={0,0,0,1};
 static float nx=.5f,ny=.5f,trigger,pedal;
 static bool aim_valid,gun_tracked;
 static uint64_t recoil_started;
+static QFeedback feedback;
+static bool haptic_active;
 static QTracer tracer;
 static int options_page;
 static int menu_selected;
@@ -169,7 +172,15 @@ static void frame_profile(uint64_t start,XrDuration period,bool visible){
 }
 static XrPath path(const char *s){XrPath p=0;xrStringToPath(instance,s,&p);return p;}
 static int weapon_hand(void){return active_weapon_hand;}
+static void stop_weapon_feedback(void){
+    if(haptic_active&&session&&running&&haptic_action){
+        XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
+        info.subactionPath=hand_paths[weapon_hand()];xrStopHapticFeedback(session,&info);
+    }
+    haptic_active=false;feedback=(QFeedback){0};recoil_started=0;tracer.active=false;
+}
 static void reset_fire_input(void){
+    stop_weapon_feedback();
     tracer.active=false;
     memset(fire_triggers,0,sizeof fire_triggers);shot_pending=shot_needs_release=fire_output_down=false;
 }
@@ -188,7 +199,7 @@ static void select_weapon_hand(int hand){
         XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;info.subactionPath=hand_paths[weapon_hand()];
         xrStopHapticFeedback(session,&info);
     }
-    active_weapon_hand=hand;recoil_started=0;tracer.active=false;aim_valid=gun_tracked=false;
+    stop_weapon_feedback();active_weapon_hand=hand;recoil_started=0;tracer.active=false;aim_valid=gun_tracked=false;
 }
 static void change_weapon_hand(void){
     options.left_handed=!options.left_handed;options_saved=qoptions_save(options_path,&options);
@@ -204,6 +215,7 @@ static void toggle_texture_filter(void){
 }
 extern int qvr_wide_fov_enabled;
 static void apply_weapon_model(void){
+    if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
     qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
 }
 static void toggle_weapon_model(void){
@@ -268,37 +280,12 @@ static void set_player_side(int side){
     /* PORT: Crisis Zone has no alternate TC2 route. */
     (void)side;
 }
-static void adjust_horizontal(int direction){
-    if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution((options.resolution+direction+QRESOLUTION_COUNT)%QRESOLUTION_COUNT);
-    else if(options_page==1){
-        if(menu_selected==0)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
-        else if(menu_selected==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
-        else if(menu_selected==2)options.texture_filtering=!options.texture_filtering;
-        else if(menu_selected==3)toggle_wide_fov();
-        else if(menu_selected==4)toggle_weapon_model();
-    }
-    else {
-        if(menu_selected==0)set_gun_pitch(options.gun_pitch+direction);
-        else if(menu_selected==1)set_world_scale(options.world_scale+direction*QOPTIONS_WORLD_SCALE_STEP);
-        else if(menu_selected==2)cycle_aim_guide();
-        else if(menu_selected==3)options.physical_crouch=!options.physical_crouch;
-    }
-}
-static void adjust_vertical(int direction){
-    adjust_horizontal(direction);
-}
-static void reset_page_setting(void){
-    if(options_page==QOPTIONS_PAGE_GRAPHICS)set_resolution(0);
-    else if(options_page==1){set_gun_offset(true,0);set_gun_offset(false,0);}
-    else set_gun_pitch(0);
-}
+#include "quest_menu_controls.inc"
 static void shot_feedback(uint64_t now){
     recoil_started=now;
     if(options.tracer_enabled&&!options.laser_enabled&&focused&&!paused&&gun_tracked&&aim_valid)
         qtracer_start(&tracer,gun_origin,gun_hit,now);
-    /* Short red impact marker at the hit point for better shot confirmation. */
-    if(focused&&!paused&&gun_tracked&&aim_valid)
-        qgl_pointer(gun_hit,add(gun_hit,v3(0,0.02f,0)));
+
 }
 static bool action(XrAction *out,const char *name,const char *label,XrActionType type,bool both_hands){
     XrActionCreateInfo ci={XR_TYPE_ACTION_CREATE_INFO};ci.actionType=type;
@@ -356,7 +343,7 @@ static bool pressed(XrAction a,XrPath hand,ButtonEdge *button){
     bool edge=button->synced&&s.currentState&&!button->was;button->was=s.currentState;button->synced=true;return edge;
 }
 static bool axis_state(XrAction a,XrPath hand,XrActionStateFloat *s){XrActionStateGetInfo info={XR_TYPE_ACTION_STATE_GET_INFO};info.action=a;info.subactionPath=hand;*s=(XrActionStateFloat){XR_TYPE_ACTION_STATE_FLOAT};return XR_SUCCEEDED(xrGetActionStateFloat(session,&info,s))&&s->isActive;}
-static float axis(XrAction a,XrPath hand){XrActionStateFloat s;return axis_state(a,hand,&s)?s.currentState:0;}
+static float axis(XrAction a,XrPath hand){XrActionStateFloat s;return axis_state(a,hand,&s)&&isfinite(s.currentState)?fmaxf(0,fminf(1,s.currentState)):0;}
 static void adjust_texture_filter(void){
     XrActionStateFloat grip;
     /* Require release after opening the menu, losing focus or reconnecting. */
@@ -381,54 +368,29 @@ static void adjust_gun_pitch(XrTime time){
     if(reset){reset_page_setting();reset_pitch_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=pitch_action;
     XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
-    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){
-        reset_pitch_input();return;
-    }
+    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||
+       !isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){reset_pitch_input();return;}
     float x=stick.currentState.x,y=stick.currentState.y;
-    if(options_page==QOPTIONS_PAGE_GRAPHICS){
-        if(fabsf(x)<.25f)scale_armed=true;
-        else if(scale_armed&&fabsf(x)>=.65f&&fabsf(x)>fabsf(y)){
-            adjust_horizontal(x>0?1:-1);scale_armed=false;
-        }
-        return;
-    }
-    if(fabsf(x)>fabsf(y))y=0;else x=0;
-    if(fabsf(x)<.25f){scale_armed=true;scale_direction=0;scale_repeat_time=0;}
-    else if(scale_armed&&fabsf(x)>=.65f){
-        int direction=x>0?1:-1;
-        if(direction!=scale_direction){adjust_horizontal(direction);scale_direction=direction;scale_repeat_time=time+400000000LL;}
-        else if(time>=scale_repeat_time){adjust_horizontal(direction);scale_repeat_time=time+100000000LL;}
-    }
-    if(fabsf(y)<.25f){pitch_armed=true;pitch_direction=0;pitch_repeat_time=0;return;}
-    if(!pitch_armed||fabsf(y)<.65f)return;
-    int direction=y>0?1:-1;
-    if(direction!=pitch_direction){adjust_vertical(direction);pitch_direction=direction;pitch_repeat_time=time+400000000LL;}
-    else if(time>=pitch_repeat_time){adjust_vertical(direction);pitch_repeat_time=time+100000000LL;}
+    float v=fabsf(x)>=fabsf(y)?x:y;
+    if(fabsf(v)<.25f){scale_armed=true;scale_direction=0;scale_repeat_time=0;return;}
+    if(!scale_armed||fabsf(v)<.65f)return;
+    int d=v>0?1:-1;
+    bool numeric=options_page==0?menu_selected<=2:options_page==1&&(menu_selected<=1||menu_selected==3||menu_selected==4);
+    if(scale_direction!=d){adjust_horizontal(d);scale_direction=d;scale_repeat_time=time+400000000LL;}
+    else if(numeric&&time>=scale_repeat_time){adjust_horizontal(d);scale_repeat_time=time+120000000LL;}
 }
 static void adjust_view_distance(XrTime time){
-    if(!paused){reset_distance_input();return;}
+    (void)time;if(!paused){reset_distance_input();return;}
     XrActionStateGetInfo get={XR_TYPE_ACTION_STATE_GET_INFO};get.action=distance_action;
     XrActionStateVector2f stick={XR_TYPE_ACTION_STATE_VECTOR2F};
-    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||!isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){
-        reset_distance_input();return;
-    }
+    if(XR_FAILED(xrGetActionStateVector2f(session,&get,&stick))||!stick.isActive||
+       !isfinite(stick.currentState.x)||!isfinite(stick.currentState.y)){reset_distance_input();return;}
     float x=stick.currentState.x,y=stick.currentState.y;
-    if(fabsf(y)<.25f)page_armed=true;
-    if(fabsf(y)>=.65f&&fabsf(x)<.25f&&page_armed){
-        /* Left stick up/down now selects the next/previous option on the page.
-           Hold further or click to change page (kept simple for now). */
-        menu_selected += (y>0 ? 1 : -1);
-        if(menu_selected < 0) menu_selected = 0;
-        if(menu_selected > 6) menu_selected = 6;
-        page_armed = false;
-        return;
-    }
-    if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
-    if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}
-    if(!distance_armed||fabsf(x)<.65f||fabsf(x)<fabsf(stick.currentState.y))return;
-    int direction=x>0?1:-1;
-    if(direction!=distance_direction){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_direction=direction;distance_repeat_time=time+400000000LL;}
-    else if(time>=distance_repeat_time){if(options_page)set_player_side(direction>0?2:1);else set_view_distance(options.view_distance+direction*QOPTIONS_VIEW_DISTANCE_STEP);distance_repeat_time=time+100000000LL;}
+    if(fabsf(x)<.25f&&fabsf(y)<.25f){page_armed=true;return;}
+    if(!page_armed||fmaxf(fabsf(x),fabsf(y))<.65f)return;
+    page_armed=false;
+    if(fabsf(x)>fabsf(y))change_options_page(x>0?1:-1);
+    else {int count=qoptions_row_count(options_page);menu_selected=(menu_selected+(y>0?-1:1)+count)%count;reset_pitch_input();}
 }
 static V3 vec(XrVector3f v){return v3(v.x,v.y,v.z);}
 static Q4 quat(XrQuaternionf q){return (Q4){q.x,q.y,q.z,q.w};}
@@ -500,7 +462,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
     if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
-    adjust_texture_filter();adjust_wide_fov();
+    adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
@@ -534,7 +496,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
             XR_SUCCEEDED(xrLocateSpace(aim_spaces[h],local_space,time,&locations[h]))&&(locations[h].locationFlags&required)==required;
         available[h]=axis_state(trigger_action,hand_paths[h],&fire[h]);
         FireTrigger *button=&fire_triggers[h];
-        if(paused||!tracked[h]||!available[h]){*button=(FireTrigger){0};continue;}
+        if(paused||!tracked[h]||!available[h]||!isfinite(fire[h].currentState)){*button=(FireTrigger){0};continue;}
         if(fire[h].currentState<.2f){button->armed=true;button->pressed=false;}
         else if(fire[h].currentState>.55f&&button->armed){button->armed=false;button->pressed=true;edges[h]=true;}
     }
@@ -566,6 +528,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         if(!aim_valid)gun_hit=add(gun_origin,mul(dir,2.5f));
         if(!paused&&fire_triggers[hand].pressed)trigger=1;
     }else shot_pending=shot_needs_release=false;
+    if(paused||!gun_tracked||trigger<=.55f||pedal<=.55f)stop_weapon_feedback();
 }
 
 /* Input tests compile the real action and polling code without a window/runtime. */
@@ -677,7 +640,7 @@ bool tc2_vr_open(void){
             if(rates&&XR(enumerate_rates(session,count,&count,rates))){
                 /* Multiview and shared sprite images leave more headroom for
                  * 120 Hz. A private override permits other benchmarks. */
-                float wanted=120;FILE *config=fopen("refresh-rate.txt","r");if(config){if(fscanf(config,"%f",&wanted)!=1)wanted=120;fclose(config);}
+                float wanted=qoptions_refresh_hz(options.refresh_preset);FILE *config=fopen("refresh-rate.txt","r");if(config){if(fscanf(config,"%f",&wanted)!=1)wanted=120;fclose(config);}
                 fprintf(stderr,"[XR] supported refresh rates:");
                 for(uint32_t j=0;j<count;j++)fprintf(stderr," %.0f",rates[j]);
                 preferred_rate=qrefresh_choose(rates,count,wanted);
@@ -737,6 +700,7 @@ graphics_ready:
     if(!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
     if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] machine gun model unavailable; pistol only\n");
+    if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
     qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
     fprintf(stderr,"[GUN] weapon model %s\n",options.machine_gun?"MACHINE GUN":"PISTOL");
     if(!qui_init())goto fail;
@@ -812,7 +776,8 @@ bool ss22_host_frame(void){
         uint64_t feedback_time=SDL_GetTicks64();
         float shot_age=recoil_started?(float)(feedback_time-recoil_started):-1;
         float tracer_alpha=qtracer_opacity(&tracer,feedback_time);
-        float recoil=qgun_recoil(shot_age),flash=paused?0:qgun_flash(shot_age);
+        float recoil=paused?0:qgun_recoil(shot_age)*(options.recoil_strength/100.f);
+        float flash=paused||!options.muzzle_flash?0:qgun_flash(shot_age);
         XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         bool draw_frame=frame.shouldRender&&tracking;
         bool frame_ok=true;
@@ -891,21 +856,13 @@ void ss22_input_update(void){
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
-    /* Map into the legal Crisis Zone gun range before the uint16 cast.
-       A small aim overflow clamps to the edge; it must never wrap. */
-    float ax=nx, ay=ny;
-    if(ax<-0.15f)ax=-0.15f; if(ax>1.15f)ax=1.15f;
-    if(ay<-0.15f)ay=-0.15f; if(ay>1.15f)ay=1.15f;
-    int gx=(int)(tc2_game.gun_x0+ax*tc2_game.gun_xw+0.5f);
-    int gy=(int)(tc2_game.gun_y0+ay*tc2_game.gun_yh+0.5f);
-    int xmax=(int)tc2_game.gun_x0+(int)tc2_game.gun_xw;
-    int ymax=(int)tc2_game.gun_y0+(int)tc2_game.gun_yh;
-    if(gx<(int)tc2_game.gun_x0)gx=(int)tc2_game.gun_x0; if(gx>xmax)gx=xmax;
-    if(gy<(int)tc2_game.gun_y0)gy=(int)tc2_game.gun_y0; if(gy>ymax)gy=ymax;
-    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)gx;g_ss22_gun_y=(uint16_t)gy;
+    bool finite=isfinite(nx)&&isfinite(ny);
+    g_ss22_gun_off=!aim_valid||!finite||nx<0||nx>1||ny<0||ny>1;
+    g_ss22_gun_x=qgun_register(nx,tc2_game.gun_x0,tc2_game.gun_xw);
+    g_ss22_gun_y=qgun_register(ny,tc2_game.gun_y0,tc2_game.gun_yh);
     tc2_inputs=bits;
 }
-void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
+void ss22_input_neutral(void){stop_weapon_feedback();trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
 const eng_ui_page *ss22_input_page(void){return NULL;}
 void ss22_input_event(const SDL_Event *e){(void)e;}
 void ss22_input_motor(uint8_t b){(void)b;}
@@ -913,22 +870,29 @@ void ss22_input_close(void){}
 bool ss22_input_aim(float *x,float *y){*x=nx;*y=ny;return aim_valid;}
 int qvr_menu_selected(void){return menu_selected;}
 void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
-    (void)lo;if(!focused||!running)return;XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
+    (void)lo;if(!focused||!running||paused||options.haptics<=0)return;XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
     info.subactionPath=hand_paths[weapon_hand()];
-    XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};vibration.duration=(XrDuration)ms*1000000;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;vibration.amplitude=hi/65535.f;
-    xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration);
+    XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};vibration.duration=(XrDuration)ms*1000000;vibration.frequency=XR_FREQUENCY_UNSPECIFIED;vibration.amplitude=(hi/65535.f)*(options.haptics/100.f);
+    haptic_active=XR_SUCCEEDED(xrApplyHapticFeedback(session,&info,(XrHapticBaseHeader*)&vibration));
 }
+/* A held cabinet output describes a burst, not individual confirmed hits.
+ * Gate it with the same trigger/cover inputs given to the game. */
+void ss22_out_poll(uint16_t outputs){
+    bool allowed=(outputs&2)&&focused&&running&&!paused&&gun_tracked&&
+                 trigger>.55f&&pedal>.55f&&fire_output_down;
+    uint64_t now=SDL_GetTicks64();int event=qfeedback_tick(&feedback,allowed,now);
+    if(event<0)stop_weapon_feedback();
+    else if(event>0){shot_feedback(now);ss22_input_rumble(0,48000,45);}
+}
+void ss22_out_close(void){stop_weapon_feedback();}
 #ifndef TCVR_INPUT_TEST
-/* PORT: Crisis Zone holds its solenoid high for a burst; refresh feedback at 10 Hz. */
-void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool solenoid=(outputs&2)&&focused&&!paused;bool firing=solenoid&&trigger>.55f;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,65535,110);}}
-void ss22_out_close(void){}
 bool ss22_host_active(void){return active;}
 bool ss22_host_restart_requested(void){return false;}
 bool ss22_host_open_headless(void){return false;}
 bool ss22_host_pointer(float *x,float *y,bool *inside){*x=nx;*y=ny;*inside=aim_valid;return active;}
 void ss22_host_shot(const char *p){(void)p;}
 void ss22_host_close(void){
-    active=false;
+    stop_weapon_feedback();active=false;
     if(context&&gpu_ready){qui_shutdown();qgun_shutdown();qgl_shutdown();}
     for(int i=0;i<2;i++){if(context&&gpu_ready&&eyes[i].fb)glDeleteFramebuffers(eyes[i].n,eyes[i].fb);if(context&&gpu_ready)glDeleteRenderbuffers(1,&eyes[i].depth);if(eyes[i].chain)xrDestroySwapchain(eyes[i].chain);free(eyes[i].images);free(eyes[i].fb);memset(&eyes[i],0,sizeof eyes[i]);}
     for(int i=0;i<HAND_COUNT;i++){if(aim_spaces[i])xrDestroySpace(aim_spaces[i]);aim_spaces[i]=0;}

@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 #ifdef TCVR_PC
 #include <glad/gl.h>
 #define GL_APIENTRY GLAD_API_PTR

@@ -8,7 +8,7 @@ Windows:
   python tools/stage_b_build.py --core path\\to\\libcrisiszone_core.a --rom path\\to\\crszone.zip --device path\\to\\namco_csz1.zip
 """
 from pathlib import Path
-import argparse, hashlib, os, platform, shutil, subprocess, sys, urllib.request, zipfile
+import argparse, hashlib, json, os, platform, shutil, subprocess, sys, urllib.request, zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import bootstrap, prepare_crisis_zone, build as build_mod
@@ -195,6 +195,12 @@ def main():
         raise SystemExit(f'core archive not found: {args.core}')
     if not args.rom.is_file():
         raise SystemExit(f'ROM not found: {args.rom}')
+    metadata=args.core.with_name('core-build-info.json')
+    if not metadata.is_file():raise SystemExit('Core metadata missing: use the matching candidate core artifact.')
+    info=json.loads(metadata.read_text())
+    expected=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    if info.get('source_commit')!=expected:raise SystemExit('Core/source commit mismatch: refusing stale host code.')
+    if info.get('sha256')!=hashlib.sha256(args.core.read_bytes()).hexdigest():raise SystemExit('Core checksum mismatch.')
     ndk = ensure_ndk()
     host = ndk_host_dir(ndk)
     clang = clang_exe(host)
@@ -222,7 +228,7 @@ def main():
         '-DCMAKE_MAKE_PROGRAM=' + str(ninja),
         '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
         '-DANDROID_ABI=arm64-v8a', '-DANDROID_PLATFORM=android-29', '-DANDROID_STL=c++_static',
-        '-DCMAKE_BUILD_TYPE=Release',
+        '-DCMAKE_BUILD_TYPE=Release', '-DTC2_CORE_ONLY=OFF',
         '-DTC2_USE_PRECOMPILED_CORE=' + str(args.core.resolve()),
     ]
     run(cmake_args)

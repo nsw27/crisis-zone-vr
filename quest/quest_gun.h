@@ -7,20 +7,21 @@ bool qgun_init(const char *path);
 bool qgun_load_weapon(QGunKind kind,const char *path);
 void qgun_select(QGunKind kind);
 QGunKind qgun_selected(void);
+bool qgun_available(QGunKind kind);
 void qgun_draw(const float view[16],const float projection[16],V3 position,Q4 rotation,float recoil,float trigger_pull,float flash);
 V3 qgun_muzzle(V3 position,Q4 rotation);
 void qgun_shutdown(void);
 
 /* Fast slide kick, then a smooth spring return; independent of display rate. */
 static inline float qgun_recoil(float age_ms){
-    if(age_ms<0||age_ms>=280)return 0;
-    if(age_ms<28)return sinf(age_ms*(1.570796327f/28.f));
-    float t=(age_ms-28.f)/252.f;return 1-t*t*(3-2*t);
+    if(age_ms<0||age_ms>=140)return 0;
+    if(age_ms<12)return sinf(age_ms*(1.570796327f/12.f));
+    float t=(age_ms-12.f)/128.f;return 1-t*t*(3-2*t);
 }
 
 /* Short local muzzle flash, driven by accepted arcade shots, never by the
  * trigger alone. A shared age is used for both eyes in each headset frame. */
 static inline float qgun_flash(float age_ms){
-    if(age_ms<0||age_ms>=70)return 0;
-    float t=1-age_ms/70.f;return t*t*1.4f;
+    if(age_ms<0||age_ms>=35)return 0;
+    float t=1-age_ms/35.f;return t*t;
 }
