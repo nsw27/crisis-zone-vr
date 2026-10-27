@@ -77,7 +77,7 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
         text(24,158,"RIGHT STICK LEFT / RIGHT: ADJUST",181,207,220);
         text(24,190,"LEFT CLICK: RESET BOTH OFFSETS",181,207,220);
         text(24,222,"+UP RAISES / +BACK PULLS TOWARDS YOU",181,207,220);
-        text(24,264,"CRISIS ZONE / MACHINE GUN",255,255,255);
+        text(24,264,options->machine_gun?"WEAPON MODEL: MACHINE GUN":"WEAPON MODEL: PISTOL",255,202,110);
         text(24,290,"HOLD TRIGGER FOR AUTOMATIC FIRE",181,207,220);
         text(24,322,"RELEASE GRIPS TO HIDE / RELOAD",255,202,110);
         text(24,364,left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);
@@ -108,9 +108,12 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     text(24,328,physical_crouch?"COVER: PHYSICAL DUCKING":"COVER: GRIP BUTTONS",255,255,255);
     text(24,352,left_handed?"B RIGHT: CHANGE MODE":"Y LEFT: CHANGE MODE",181,207,220);
     text(24,378,options->texture_filtering?"TEXTURE FILTERING: ON":"TEXTURE FILTERING: OFF",255,202,110);text(448,378,"LEFT GRIP",181,207,220);
-    text(24,402,left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
-    text(24,426,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
-    text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
+    text(24,402,options->enhanced?"ENHANCED: ON":"ENHANCED: OFF",options->enhanced?255:181,options->enhanced?202:207,options->enhanced?110:220);
+    text(24,426,options->machine_gun?"WEAPON: MACHINE GUN":"WEAPON: PISTOL",options->machine_gun?255:181,options->machine_gun?202:207,options->machine_gun?110:220);
+    text(24,450,options->wide_fov?"WIDE FOV: ON":"WIDE FOV: OFF",options->wide_fov?255:181,options->wide_fov?202:207,options->wide_fov?110:220);text(448,450,"RIGHT GRIP",181,207,220);
+    text(24,474,left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
+    text(24,498,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
+    text(24,522,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
 }
 static GLuint shader(GLenum type,const char *source){
     GLuint s=glCreateShader(type);qgpu_shader_source(s,source);glCompileShader(s);GLint ok;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);

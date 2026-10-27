@@ -201,6 +201,13 @@ static void toggle_texture_filter(void){
     options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] texture filtering %s; saved %d\n",options.texture_filtering?"ON":"OFF",options_saved);
 }
+extern int qvr_wide_fov_enabled;
+static void toggle_wide_fov(void){
+    options.wide_fov=!options.wide_fov;
+    qvr_wide_fov_enabled=options.wide_fov;
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] wide FOV %s; saved %d\n",options.wide_fov?"ON":"OFF",options_saved);
+}
 static void set_resolution(int preset){
     if(preset<0||preset>=QRESOLUTION_COUNT||preset==options.resolution)return;
     options.resolution=preset;options_saved=qoptions_save(options_path,&options);
@@ -337,6 +344,15 @@ static void adjust_texture_filter(void){
     if(grip.currentState<.2f)filter_armed=true;
     else if(grip.currentState>.55f&&filter_armed){filter_armed=false;toggle_texture_filter();}
 }
+static bool wide_armed;
+static void adjust_wide_fov(void){
+    XrActionStateFloat grip;
+    if(!paused||!axis_state(grip_action,hand_paths[RIGHT_HAND],&grip)||!isfinite(grip.currentState)){
+        wide_armed=false;return;
+    }
+    if(grip.currentState<.2f)wide_armed=true;
+    else if(grip.currentState>.55f&&wide_armed){wide_armed=false;toggle_wide_fov();}
+}
 static void adjust_gun_pitch(XrTime time){
     bool reset=pressed(pitch_reset_action,XR_NULL_PATH,&pitch_reset_button);
     if(!paused){reset_pitch_input();return;}
@@ -456,7 +472,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
     if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
-    adjust_texture_filter();
+    adjust_texture_filter();adjust_wide_fov();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
     adjust_gun_pitch(time);
@@ -528,7 +544,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
 #ifndef TCVR_INPUT_TEST
 bool tc2_vr_open(void){
     replay_input=getenv("TC2_REPLAY")!=NULL;
-    qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
+    qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_wide_fov_enabled=options.wide_fov;qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");

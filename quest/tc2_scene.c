@@ -16,6 +16,7 @@ float qvr_world_scale=1.f;
  * is required. WORLD SIZE remains adjustable. */
 float qvr_units_per_meter=2.f/3.f;
 float qvr_view_distance;
+int qvr_wide_fov_enabled = 1;  /* default ON; toggled from options */
 static V3 world_vertex(V3 v){return sub(mul(v,qvr_world_scale),v3(0,0,qvr_view_distance));}
 typedef struct {float cx,cy,f;} Camera;
 typedef struct {V3 a,b,c;Camera cam;} Triangle;
@@ -85,6 +86,17 @@ const tc2_built *qvr_current_frame(void){return frame;}
 void qvr_scene_prepare(const tc2_built *b){
     frame=b;triangle_count=0;zone_select=false;memset(effect_depth,0,sizeof effect_depth);
     letterbox_top=0;letterbox_bottom=480;if(!b)return;
+    /* Experimental wider interest region for VR.
+       Set TCVR_WIDE_FOV=1 (or a float > 1) to expand effective FOV so more
+       geometry is retained before the original arcade camera would have pointed there.
+       Helps reduce pop-in when you look/aim early. Default off. */
+    float wide_fov = qvr_wide_fov_enabled ? 1.35f : 1.f;
+    const char *e = getenv("TCVR_WIDE_FOV");
+    if(e){
+        float v = strtof(e, NULL);
+        if(isfinite(v) && v > 0.5f && v < 4.f) wide_fov = v;
+        else if(*e == '1') wide_fov = 1.35f;
+    }
     zone_select=csz_zone_select(&b->fs);
     if(zone_select)for(int i=0;i<b->fs.list.count;i++){
         const tc2_render_entry *e=&b->fs.list.e[i];
@@ -110,7 +122,9 @@ void qvr_scene_prepare(const tc2_built *b){
             if(y0>240)letterbox_bottom=(int)fminf(letterbox_bottom,floorf(y0));
         }
         if(layer!=QTC2_WORLD)continue;
-        Camera c=camera(b,p);int k;
+        Camera c=camera(b,p);
+        if(wide_fov != 1.f) c.f *= wide_fov;   /* experimental: pull more geometry into view */
+        int k;
         for(k=0;k<nc;k++)if(!memcmp(&c,&candidates[k].cam,sizeof c))break;
         if(k==nc&&nc<64){candidates[nc].cam=c;candidates[nc++].count=0;}
         if(k<nc)candidates[k].count+=(unsigned)(p->n-2);
@@ -160,5 +174,13 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
     }
     if(projected.z>=-1e-6f)return false;
     *nx=(c.cx+c.f*projected.x/-projected.z)/640.f;*ny=(c.cy-c.f*projected.y/-projected.z)/480.f;
-    return *nx>=0&&*nx<=1&&*ny>=0&&*ny<=1;
+    /* Aggressive VR aiming: accept a wide range outside the original arcade frustum
+       and always clamp into the playable area. This lets you shoot well past the
+       original edges instead of having shots rejected. */
+    const float margin = 0.45f;  /* ~45% extra on each side */
+    if(*nx < -margin || *nx > 1.f + margin || *ny < -margin || *ny > 1.f + margin)
+        return false;
+    *nx = fmaxf(0.001f, fminf(0.999f, *nx));
+    *ny = fmaxf(0.001f, fminf(0.999f, *ny));
+    return true;
 }

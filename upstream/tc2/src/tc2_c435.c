@@ -180,6 +180,13 @@ static void state_set(uint16_t type, const uint16_t *p, uint16_t header)
             const float a2 = clip_data[2] < 0 ? -clip_data[2] : clip_data[2];
             vp_size_y = (int16_t)(a10 * a23 + 0.5f);
             vp_size_x = (int16_t)((float)vp_size_y * a2 / a10 + 0.5f);
+            /* VR wide FOV: expand the viewport the game uses for culling so more
+               objects are activated before you turn toward them. */
+            extern int qvr_wide_fov_enabled;
+            if (qvr_wide_fov_enabled) {
+                vp_size_x = (int16_t)(vp_size_x * 1.6f);
+                vp_size_y = (int16_t)(vp_size_y * 1.6f);
+            }
         }
         break;
     default: break;

@@ -166,6 +166,10 @@ static int finish(poly *p, const tc2_render_entry *e, int hsort, uint32_t polysh
      * The board's real limit is not documented: 4096 is the value that fits. TC2_XYCULL=<n> tries another, 0 = off (MAME's picture). */
     { static float lim = -2; if (lim == -2) { const char *e2 = getenv("TC2_XYCULL"); lim = e2 ? (float)atof(e2) : 4096.f; }
       static int all = -1; if (all < 0) all = getenv("TC2_XYCULL_ALL") != NULL;   /* TEST ONLY: opaque polygons too */
+      /* Experimental VR pre-activation: TCVR_WIDE_FOV or TC2_XYCULL=0 keeps more geometry
+         so objects appear earlier when you look/aim outside the original arcade view. */
+      extern int qvr_wide_fov_enabled;
+      if ((qvr_wide_fov_enabled || getenv("TCVR_WIDE_FOV")) && lim > 0) lim = 0.f;
       if (lim > 0 && (all || p->blend)) for (int i = 0; i < p->n; i++) if (p->pv[i].x > lim || p->pv[i].x < -lim || p->pv[i].y > lim || p->pv[i].y < -lim) return 0; }
     int zsort;
     switch (hsort) { case 0: zsort = (int)(minz + 0.5f); break; case 1: zsort = (int)(maxz + 0.5f); break; default: zsort = (int)(0.5f * (minz + maxz) + 0.5f); }
