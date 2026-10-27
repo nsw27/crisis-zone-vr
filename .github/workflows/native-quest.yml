@@ -1,4 +1,15 @@
-name: Native Quest build
+name: Native Quest core
+
+# Builds the ROM-independent static core (libcrisiszone_core.a).
+# This archive does NOT contain csz_sub.c / csz_io.c.
+# It is NOT a playable libmain.so. The previous stubbed libmain-so artifact
+# was a validation build only and must not be packaged.
+#
+# Stage B (local, with the user's ROM):
+#   1. Generate real csz_sub.c and csz_io.c from the ROM.
+#   2. Compile those two files with the SAME NDK used here.
+#   3. Link them with this archive into the production libmain.so.
+#   4. Package and sign the APK.
 
 on:
   push:
@@ -8,8 +19,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  libmain:
-    name: Build libmain.so
+  core:
+    name: Build crisiszone_core
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -31,12 +42,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build unzip wget
 
-      - name: Download Android NDK r27c (Linux)
+      - name: Download Android NDK r29 (Linux)
         run: |
           mkdir -p .tools
-          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          # Match the project's normal NDK major (29.x). Stage B must use this same NDK.
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r29-linux.zip
           unzip -q /tmp/ndk.zip -d .tools
-          mv .tools/android-ndk-r27c .tools/ndk
+          # The zip extracts to android-ndk-r29 or android-ndk-r29-*.
+          NDK_DIR=$(find .tools -maxdepth 1 -type d -name 'android-ndk-*' | head -1)
+          mv "$NDK_DIR" .tools/ndk
+          echo "NDK=$(.tools/ndk/source.properties 2>/dev/null | head -2 || true)"
           rm /tmp/ndk.zip
 
       - name: Download SDL 2.30.11
@@ -52,25 +67,13 @@ jobs:
           unzip -q /tmp/openxr.aar -d .tools/openxr
           rm /tmp/openxr.aar
 
-      - name: Stub ROM-generated H8 sources
-        run: |
-          # csz_sub.c / csz_io.c are produced from the proprietary ROM.
-          # For native-only CI we provide empty stubs so libmain.so can link.
-          mkdir -p upstream/crszone/gen
-          cat > upstream/crszone/gen/csz_sub.c << 'STUB'
-          #include "h8_sem.h"
-          void tc2sub_run(h8_cpu *c) { (void)c; }
-          STUB
-          cat > upstream/crszone/gen/csz_io.c << 'STUB'
-          #include "h8_sem.h"
-          void tc2io_run(h8_cpu *c) { (void)c; }
-          STUB
-
-      - name: Configure
+      - name: Configure (core only, no H8)
         run: |
           mkdir -p build/native
+          # TC2_CORE_ONLY skips libmain.so. No stub H8 is compiled or linked.
           cmake -Wno-dev -Wno-deprecated \
             -S quest -B build/native -G Ninja \
+            -DTC2_CORE_ONLY=ON \
             -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-29 \
@@ -78,15 +81,16 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             2>&1 | tee build/cmake-configure.log
 
-      - name: Build libmain.so (serial)
+      - name: Build crisiszone_core (serial)
         run: |
-          cmake --build build/native --parallel 1 2>&1 | tee build/ninja-build.log
+          cmake --build build/native --target crisiszone_core --parallel 1 2>&1 | tee build/ninja-build.log
+          ls -lh build/native/libcrisiszone_core.a
 
-      - name: Upload libmain.so
+      - name: Upload crisiszone-precompiled-core
         uses: actions/upload-artifact@v4
         with:
-          name: libmain-so
-          path: build/native/libmain.so
+          name: crisiszone-precompiled-core
+          path: build/native/libcrisiszone_core.a
           if-no-files-found: error
 
       - name: Upload build logs

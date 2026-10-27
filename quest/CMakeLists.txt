@@ -19,12 +19,23 @@ foreach(header ${SDL_HEADERS})
   configure_file("${header}" "${CMAKE_BINARY_DIR}/compat/SDL2/${name}" COPYONLY)
 endforeach()
 include(tc2_sources.cmake)
-add_library(main SHARED quest_main.c ${TC2_SOURCES})
 
-target_compile_definitions(main PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
-target_compile_options(main PRIVATE -O3 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
-target_include_directories(main PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
-add_library(openxr_loader SHARED IMPORTED)
-set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so")
-target_link_libraries(main SDL2 openxr_loader GLESv3 EGL android log z m)
-target_link_options(main PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,--no-undefined")
+# ROM-independent static core. CI builds only this and uploads it.
+# The production libmain.so links this archive with the real ROM-generated H8 sources.
+add_library(crisiszone_core STATIC ${TC2_CORE_SOURCES})
+target_compile_definitions(crisiszone_core PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
+target_compile_options(crisiszone_core PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
+target_include_directories(crisiszone_core PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
+
+# Production shared library. Requires real csz_sub.c / csz_io.c (from the ROM).
+# Not built by the CI core-only job.
+if(NOT TC2_CORE_ONLY)
+  add_library(main SHARED quest_main.c ${TC2_H8_SOURCES})
+  target_compile_definitions(main PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
+  target_compile_options(main PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
+  target_include_directories(main PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
+  add_library(openxr_loader SHARED IMPORTED)
+  set_target_properties(openxr_loader PROPERTIES IMPORTED_LOCATION "${XR}/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so")
+  target_link_libraries(main crisiszone_core SDL2 openxr_loader GLESv3 EGL android log z m)
+  target_link_options(main PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,--no-undefined")
+endif()
