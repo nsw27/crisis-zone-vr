@@ -21,7 +21,12 @@ def package_manifest(bundle_roms):
     return ROOT/'quest/AndroidManifest.xml'
 
 
-def package(assets):
+def package(assets, rom, bundle_roms=True, native_dir=None):
+    """Package the APK. Returns the final APK path.
+
+    rom and bundle_roms are explicit so this can be called as a module
+    without relying on CLI globals.
+    """
     models=assets/'models';models.mkdir(exist_ok=True)
     source_models=sorted((ROOT/'quest/assets/models').glob('*.tcgun'))
     if not any(m.name=='player-gun.tcgun' for m in source_models):raise RuntimeError('Missing player gun asset')
@@ -47,20 +52,21 @@ def package(assets):
         (public/'models').mkdir()
         for model in source_models:shutil.copy2(model,public/'models'/model.name)
         shutil.copy2(assets/'models.sha256',public/'models.sha256')
-        if args.bundle_roms:shutil.copytree(assets/'roms',public/'roms')
+        if bundle_roms:shutil.copytree(assets/'roms',public/'roms')
         # c71.bin is optional and already supplied by the upstream engine.
         manifest=[line for line in (assets/'roms.sha256').read_text().splitlines() if line.split('  ',1)[1]!='c71.bin']
         assert len(manifest)==23
         (public/'roms.sha256').write_text('\n'.join(manifest)+'\n',encoding='ascii')
         resources=BUILD/'launcher-res.zip'
         run([bt/'aapt2.exe','compile','--dir',ROOT/'quest/res','-o',resources])
-        run([bt/'aapt2.exe','link','--manifest',package_manifest(args.bundle_roms),'-I',android,'-A',public,resources,'-o',base])
+        run([bt/'aapt2.exe','link','--manifest',package_manifest(bundle_roms),'-I',android,'-A',public,resources,'-o',base])
     strip=ROOT/'.tools/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe'
     libs=BUILD/'package-libs';libs.mkdir(exist_ok=True)
-    for name,source in [('libmain.so',BUILD/'native/libmain.so'),('libSDL2.so',BUILD/'native/sdl/libSDL2.so'),('libopenxr_loader.so',ROOT/'.tools/openxr/prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so')]:
+    native=Path(native_dir) if native_dir else BUILD/'native'
+    for name,source in [('libmain.so',native/'libmain.so'),('libSDL2.so',native/'sdl/libSDL2.so'),('libopenxr_loader.so',ROOT/'.tools/openxr/prefab/modules/openxr_loader/libs/android.arm64-v8a/libopenxr_loader.so')]:
         run([strip,'--strip-unneeded','-o',libs/name,source])
     with zipfile.ZipFile(base,'a',zipfile.ZIP_DEFLATED) as z:
-        if not args.bundle_roms:assert not any(n.startswith('assets/roms/') or n.endswith('crszone.zip') for n in z.namelist())
+        if not bundle_roms:assert not any(n.startswith('assets/roms/') or n.endswith('crszone.zip') for n in z.namelist())
         for p in dex.glob('*.dex'):z.write(p,p.name)
         for p in libs.glob('*.so'):z.write(p,'lib/arm64-v8a/'+p.name)
     manifest=ET.parse(ROOT/'quest/AndroidManifest.xml').getroot();ns='{http://schemas.android.com/apk/res/android}'
@@ -71,12 +77,13 @@ def package(assets):
     signer=[JAVA/'java.exe','-jar',bt/'lib/apksigner.jar']
     run(signer+['sign','--ks',key,'--ks-key-alias','androiddebugkey','--ks-pass','pass:android','--key-pass','pass:android',output])
     run(signer+['verify','--verbose',output]);run([bt/'zipalign.exe','-c','-P','16','4',output])
-    report={'apk':output.name,'sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'bytes':output.stat().st_size,'upstream':json.loads((ROOT/'upstream/SOURCE.json').read_text()),'abi':'arm64-v8a','roms_bundled':args.bundle_roms,'rom_sha256':hashlib.sha256(args.rom.read_bytes()).hexdigest(),'hardware_tested':False}
+    report={'apk':output.name,'sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'bytes':output.stat().st_size,'upstream':json.loads((ROOT/'upstream/SOURCE.json').read_text()),'abi':'arm64-v8a','roms_bundled':bundle_roms,'rom_sha256':hashlib.sha256(Path(rom).read_bytes()).hexdigest(),'hardware_tested':False}
     report['version_name']=manifest.get(ns+'versionName');report['version_code']=int(manifest.get(ns+'versionCode'))
     (output.parent/'build-info.json').write_text(json.dumps(report,indent=2)+'\n')
     output.with_suffix('.apk.sha256').write_text(report['sha256']+'  '+output.name+'\n',encoding='ascii')
     shutil.copy2(ROOT/'docs/VALIDATION.md',output.parent/'VALIDATION.md')
     print(json.dumps(report,indent=2))
+    return output
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--rom',type=Path,default=Path.home()/'Downloads/crszone.zip');p.add_argument('--jobs',type=int,default=2);p.add_argument('--package-only',action='store_true');p.add_argument('--skip-prepare',action='store_true');p.add_argument('--bundle-roms',action='store_true',default=True,help='Include supplied ROMs (always bundled in this port)');args=p.parse_args()
@@ -90,4 +97,4 @@ if __name__=='__main__':
         run(['cmake','-Wno-dev','-Wno-deprecated','-S',ROOT/'quest','-B',BUILD/'native','-G','Ninja','-DCMAKE_MAKE_PROGRAM='+str(ROOT/'.tools/ninja/ninja.exe'),'-DCMAKE_TOOLCHAIN_FILE='+str(ndk/'build/cmake/android.toolchain.cmake'),'-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-29','-DANDROID_STL=c++_static','-DCMAKE_BUILD_TYPE=Release'])
         run(['cmake','--build',BUILD/'native','--parallel',args.jobs])
     else:assets=BUILD/'assets'
-    package(assets)
+    package(assets, args.rom, bundle_roms=args.bundle_roms)
