@@ -90,7 +90,7 @@ void qvr_scene_prepare(const tc2_built *b){
        Set TCVR_WIDE_FOV=1 (or a float > 1) to expand effective FOV so more
        geometry is retained before the original arcade camera would have pointed there.
        Helps reduce pop-in when you look/aim early. Default off. */
-    float wide_fov = qvr_wide_fov_enabled ? 1.35f : 1.f;
+    float wide_fov = qvr_wide_fov_enabled ? 1.55f : 1.f;
     const char *e = getenv("TCVR_WIDE_FOV");
     if(e){
         float v = strtof(e, NULL);
@@ -177,7 +177,7 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
     /* Aggressive VR aiming: accept a wide range outside the original arcade frustum
        and always clamp into the playable area. This lets you shoot well past the
        original edges instead of having shots rejected. */
-    const float margin = 0.80f;  /* ~80% extra on each side — allow well off-screen aims */
+    const float margin = 1.00f;  /* 100% off-screen — aggressive edge aiming */
     if(*nx < -margin || *nx > 1.f + margin || *ny < -margin || *ny > 1.f + margin)
         return false;
     *nx = fmaxf(0.001f, fminf(0.999f, *nx));

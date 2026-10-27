@@ -878,7 +878,7 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
 }
 #ifndef TCVR_INPUT_TEST
 /* PORT: Crisis Zone holds its solenoid high for a burst; refresh feedback at 10 Hz. */
-void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool firing=(outputs&2)&&focused&&!paused;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,48000,60);}}
+void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool firing=(outputs&2)&&focused&&!paused;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,62000,90);}}
 void ss22_out_close(void){}
 bool ss22_host_active(void){return active;}
 bool ss22_host_restart_requested(void){return false;}
