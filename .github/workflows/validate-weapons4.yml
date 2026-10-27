@@ -1,0 +1,148 @@
+name: Validate optional Crisis Zone handgun and switching
+on:
+  push:
+    branches: [feat/quest-weapons-4]
+    paths: [.github/workflows/validate-weapons4.yml]
+permissions:
+  contents: write
+concurrency:
+  group: quest-weapons4-source-validation
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply only the exact locally tested source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 635d49de35e00eaa43d359c937bd400c0f2969db HEAD
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,subprocess
+          from pathlib import Path
+          data=base64.b64decode(''.join(Path(f'.review/weapons4-{i}.b64').read_text().strip() for i in range(5)),validate=True)
+          assert hashlib.sha256(data).hexdigest()=='9963c1587d29aeefab105750790d752f719c236d078a39ed7937e4e344acfe6c','Source transport digest mismatch'
+          patch=gzip.decompress(data)
+          subprocess.run(['git','apply','--check','--unidiff-zero','-'],input=patch,check=True)
+          subprocess.run(['git','apply','--unidiff-zero','-'],input=patch,check=True)
+          expected={
+            'docs/EXPANDED_WEAPONS_RESEARCH.md':'6febc7a1300f2b4da0cac31b31d948c231fd56d34df3d4254469e1e48c3161aa',
+            'quest/crisis_zone_weapons.c':'7eb24b0849b4da6232fff78d101739506f43d97cfdbc18172c0096a9d7a9f857',
+            'quest/crisis_zone_weapons.h':'6dfef8ff16f6c96f36e659b2f7247e2d459f4f6fa72556c3276c0e86ba13044c',
+            'quest/quest_host.c':'5ffe152abd8d6f6b5b23d97886d03ee18a622d538e5a875b20efc51d5824c7cb',
+            'quest/quest_menu_controls.inc':'85b61d81f632d6d9356f662b91267734594f401c13db21e34bf061bfb4e32bd1',
+            'quest/quest_options.c':'f86eaa78bf153dfe570326f033297214ca68181abd382b6f6a2b46d2490da0d7',
+            'quest/quest_options.h':'d9c4b654be555d697e7097d1e2f0750b242a4b4f6a56b6575825a998584221e4',
+            'quest/quest_ui.c':'6e5d90061b779f8c4d9ce308e2a7b9b4c69c93d95155c53edd55fe2bb889ce7e',
+            'quest/quest_weapon_rules.h':'9dff6d1564b657226e6bad1254b15104e44acc506df123ed2afb07b9e9138ba9',
+            'quest/tc2_sources.cmake':'c4cc15ad84a254105abba5fbed60a9f96d5998c10b0ec503e8cff8ac1175b105',
+            'tests/quest_candidate_graphics_fixture.c':'7a31d97df83520eae6ad2364c04e33d25b389dade6fac2528677007a3ccdcf33',
+            'tests/quest_candidate_input_fixture.c':'9f92a32e4cf79033af81f7986467c27e437478e49f678fa673c1dcf04e6de537',
+            'tests/quest_weapon_lifted_harness.inc':'e14c43f62928d0325be01615b2d383454cd796a3ee6c58e43830acf2ff2b9bda',
+            'tests/quest_weapon_rules_fixture.c':'91a69bf10ea1d2954bb11b2ddb80b1a0d739069de1a29f9a2e017b259b315bfd',
+            'tests/test_quest_candidate.py':'bc7b86bb950c2ec23edd49e711483a9ccab103f62c3f51d80c6c9045c081c89a',
+            'tests/test_weapon_hooks.py':'f5e310d1644f424581bb5e3523ecc90831999225b00bd9618ce3875768af3244',
+            'tools/prepare_weapon_hooks.py':'76ffe7c7ec0ba9efe64fbe4fd2facdcfd7a6d50328a8fa6ef44bcb6c5cd3db78'
+          }
+          for name,digest in expected.items():assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==digest,name
+          Path('weapon-source-manifest.json').write_text(json.dumps(expected,indent=2)+'\n')
+          print('Validated 17 exact source files; original lifted inputs unchanged.')
+          PY
+          git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install host test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build unzip wget gcc libegl-dev libgles-dev libsdl2-dev libopenxr-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Execute actual lifted firing and reload code
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python3 tests/test_weapon_hooks.py 2>&1 | tee build/weapon-hooks.log
+      - name: Run production controls and rendering regressions
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          python3 tests/test_quest_candidate.py 2>&1 | tee build/weapon-host.log
+          git show 26485c0e765103fe7db7a7d5fa3deea438e34771:quest/tc2_gl.c > /tmp/preview2-gl.c
+          python3 tests/test_quest_quality.py --baseline-renderer /tmp/preview2-gl.c 2>&1 | tee build/weapon-quality.log
+      - name: Prepare pinned Android toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/sdl .tools/openxr
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q /tmp/ndk.zip -d .tools
+          mv .tools/android-ndk-r29 .tools/ndk
+          grep -q '29.0.14206865' .tools/ndk/source.properties
+          rm /tmp/ndk.zip
+          wget -q -O /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip
+          unzip -q /tmp/sdl.zip -d .tools/sdl
+          wget -q -O /tmp/xr.aar https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar
+          unzip -q /tmp/xr.aar -d .tools/openxr
+      - name: Compile changed native and instrumented lifted objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S quest -B build/native -G Ninja -DTC2_CORE_ONLY=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
+            2>&1 | tee build/weapon-android-configure.log
+          python3 - <<'PY' 2>&1 | tee build/weapon-android-objects.log
+          import subprocess
+          wanted={'crisis_zone_weapons.c','quest_host.c','quest_options.c','quest_ui.c','crszone_lifted_00.c','crszone_lifted_08.c'}
+          output=subprocess.check_output(['ninja','-C','build/native','-t','targets','all'],text=True)
+          selected=[]
+          for line in output.splitlines():
+              target=line.split(': ',1)[0]
+              if 'crisiszone_core.dir/' in target and any(target.endswith('/'+n+'.o') for n in wanted):selected.append(target)
+          assert len(selected)==len(wanted),selected
+          for target in selected:
+              if 'crszone_lifted_' in target:assert 'weapon-lifted' in target,target
+          subprocess.run(['ninja','-C','build/native','-j','1',*selected],check=True)
+          print('PASS: native weapon integration and both instrumented lifted units compiled for ARM64 NDK r29; no APK built.')
+          PY
+      - name: Commit only tested source on isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,hashlib
+          from pathlib import Path
+          manifest=json.loads(Path('weapon-source-manifest.json').read_text())
+          for name,digest in manifest.items():assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==digest,name
+          subprocess.run(['git','add','--',*manifest],check=True)
+          PY
+          git rm .review/weapons4-*.b64 .github/workflows/validate-weapons4.yml
+          git diff --cached --check
+          git config user.name 'Thatcher productions'
+          git config user.email '45753033+nsw27@users.noreply.github.com'
+          git commit -m 'Add opt-in real 12-round handgun and safe weapon switching with guarded arcade hooks'
+          git push origin HEAD:feat/quest-weapons-4
+          git rev-parse HEAD | tee weapon-source-commit.txt
+      - name: Preserve validation evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest-weapons4-source-validation
+          path: |
+            weapon-source-manifest.json
+            weapon-source-commit.txt
+            build/weapon-*.log
+            build/weapon-hooks/results.json
+            build/candidate-tests/results.json
+            build/quality-tests/results.json
+            build/candidate-tests/*.ppm
+          if-no-files-found: warn
+          retention-days: 14
