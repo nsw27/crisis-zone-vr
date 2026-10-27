@@ -173,12 +173,13 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
         if(qvr_flat_view)c=(Camera){320,240,500};
     }
     if(projected.z>=-1e-6f)return false;
-    *nx=(c.cx+c.f*projected.x/-projected.z)/640.f;*ny=(c.cy-c.f*projected.y/-projected.z)/480.f;
-    /* Aggressive VR aiming: accept a wide range outside the original arcade frustum
-       and always clamp into the playable area. This lets you shoot well past the
-       original edges instead of having shots rejected. */
-    const float margin = 1.00f;  /* 100% off-screen — aggressive edge aiming */
-    if(*nx < -margin || *nx > 1.f + margin || *ny < -margin || *ny > 1.f + margin)
+    /* Use a wide fixed projection for aiming so extreme left/right angles
+       still produce valid coordinates. The original camera FOV was too narrow. */
+    float wide_f = c.f * 2.2f;
+    *nx=(320.f+wide_f*projected.x/-projected.z)/640.f;
+    *ny=(240.f-wide_f*projected.y/-projected.z)/480.f;
+    /* Accept a very wide range and clamp into the playable area. */
+    if(*nx < -1.5f || *nx > 2.5f || *ny < -1.5f || *ny > 2.5f)
         return false;
     *nx = fmaxf(0.001f, fminf(0.999f, *nx));
     *ny = fmaxf(0.001f, fminf(0.999f, *ny));

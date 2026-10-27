@@ -93,6 +93,7 @@ static bool aim_valid,gun_tracked;
 static uint64_t recoil_started;
 static QTracer tracer;
 static int options_page;
+static int menu_selected;
 static bool page_armed;
 static bool replay_input;
 static int coin_frames;
@@ -215,7 +216,7 @@ static void set_resolution(int preset){
 }
 static void change_options_page(int direction){
     options_page=(options_page+direction+QOPTIONS_PAGE_COUNT)%QOPTIONS_PAGE_COUNT;
-    reset_pitch_input();reset_distance_input();
+    menu_selected=0;reset_pitch_input();reset_distance_input();
 }
 static void set_gun_pitch(int value){
     if(value<QOPTIONS_GUN_PITCH_MIN)value=QOPTIONS_GUN_PITCH_MIN;
@@ -393,7 +394,13 @@ static void adjust_view_distance(XrTime time){
     float x=stick.currentState.x,y=stick.currentState.y;
     if(fabsf(y)<.25f)page_armed=true;
     if(fabsf(y)>=.65f&&fabsf(x)<.25f&&page_armed){
-        change_options_page(y>0?1:-1);return;
+        /* Left stick up/down now selects the next/previous option on the page.
+           Hold further or click to change page (kept simple for now). */
+        menu_selected += (y>0 ? 1 : -1);
+        if(menu_selected < 0) menu_selected = 0;
+        if(menu_selected > 4) menu_selected = 4;
+        page_armed = false;
+        return;
     }
     if(options_page==QOPTIONS_PAGE_GRAPHICS)return;
     if(fabsf(x)<.25f){distance_armed=true;distance_direction=0;distance_repeat_time=0;return;}

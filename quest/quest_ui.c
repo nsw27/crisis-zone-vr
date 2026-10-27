@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "quest_ui.h"
+extern int qvr_menu_selected(void);
 #include "quest_options.h"
 #include "font_data.h"
 
@@ -78,9 +79,9 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     if(page==1){
         text(24,20,"GUN FIT  2/3",181,207,220);
         text(24,48,"> RIGHT STICK: MOVE GUN   LEFT STICK: PAGE",255,220,100);
-        highlight(76,22);snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,80,label,255,255,255);
+        if(qvr_menu_selected()==0)highlight(76,22);snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,80,label,255,255,255);
         text(24,102,"UP/DOWN: RAISE / LOWER",181,207,220);
-        highlight(130,22);snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,134,label,255,255,255);
+        if(qvr_menu_selected()==1)highlight(130,22);snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,134,label,255,255,255);
         text(24,156,"LEFT/RIGHT: CLOSER / FURTHER",181,207,220);
         text(24,190,"LEFT CLICK: RESET BOTH OFFSETS",181,207,220);
         text(24,222,"+UP RAISES / +BACK PULLS TOWARDS YOU",181,207,220);
@@ -97,10 +98,10 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     text(24,46,"> RIGHT STICK: ADJUST   LEFT STICK: PAGE",255,220,100);
     text(24,74,left_handed?"HAND: LEFT":"HAND: RIGHT",255,255,255);
     text(24,96,"STICK CLICK: SWAP",181,207,220);
-    highlight(124,22);snprintf(label,sizeof label,"GUN ANGLE: %+d",gun_pitch);
+    if(qvr_menu_selected()==0)highlight(124,22);snprintf(label,sizeof label,"GUN ANGLE: %+d",gun_pitch);
     text(24,128,label,255,255,255);
     text(24,150,"UP/DOWN: ANGLE",181,207,220);
-    highlight(178,22);snprintf(label,sizeof label,"WORLD SIZE: %d%%",world_scale);text(24,182,label,255,255,255);
+    if(qvr_menu_selected()==1)highlight(178,22);snprintf(label,sizeof label,"WORLD SIZE: %d%%",world_scale);text(24,182,label,255,255,255);
     text(24,204,"LEFT/RIGHT: SIZE",181,207,220);
     int knob=28+(world_scale-QOPTIONS_WORLD_SCALE_MIN)*583/(QOPTIONS_WORLD_SCALE_MAX-QOPTIONS_WORLD_SCALE_MIN);
     for(int y=216;y<232;y++)for(int x=24;x<616;x++){
