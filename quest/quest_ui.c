@@ -71,10 +71,11 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     if(page==QOPTIONS_PAGE_GRAPHICS){graphics_panel(options,saved);return;}
     if(page==1){
         text(24,20,"GUN FIT  2/3",181,207,220);
-        snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,64,label,255,255,255);
-        text(24,90,"RIGHT STICK UP / DOWN: ADJUST",181,207,220);
-        snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,132,label,255,255,255);
-        text(24,158,"RIGHT STICK LEFT / RIGHT: ADJUST",181,207,220);
+        text(24,48,"> RIGHT STICK: MOVE GUN   LEFT STICK: PAGE",255,220,100);
+        snprintf(label,sizeof label,"GUN UP: %+d MM",options->gun_offset_y_mm);text(24,80,label,255,255,255);
+        text(24,102,"UP/DOWN: RAISE / LOWER",181,207,220);
+        snprintf(label,sizeof label,"GUN BACK: %+d MM",options->gun_offset_z_mm);text(24,134,label,255,255,255);
+        text(24,156,"LEFT/RIGHT: CLOSER / FURTHER",181,207,220);
         text(24,190,"LEFT CLICK: RESET BOTH OFFSETS",181,207,220);
         text(24,222,"+UP RAISES / +BACK PULLS TOWARDS YOU",181,207,220);
         text(24,264,options->machine_gun?"WEAPON MODEL: MACHINE GUN":"WEAPON MODEL: PISTOL",255,202,110);
@@ -86,14 +87,15 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
         text(24,454,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
         return;
     }
-    text(24,20,"WORLD / OPTIONS  1/3",181,207,220);
-    text(24,54,left_handed?"DEFAULT HAND: LEFT":"DEFAULT HAND: RIGHT",255,255,255);
-    text(24,78,"RIGHT STICK CLICK: CHANGE DEFAULT",181,207,220);
-    snprintf(label,sizeof label,"GUN ANGLE: %+d DEG",gun_pitch);
-    text(24,110,label,255,255,255);
-    text(24,134,"RIGHT UP/DOWN: ANGLE | LEFT CLICK: 0",181,207,220);
-    snprintf(label,sizeof label,"WORLD SIZE: %d%%",world_scale);text(24,168,label,255,255,255);
-    text(24,192,"RIGHT STICK LEFT / RIGHT: ADJUST",181,207,220);
+    text(24,20,"OPTIONS  1/3",181,207,220);
+    text(24,46,"> RIGHT STICK: ADJUST   LEFT STICK: PAGE",255,220,100);
+    text(24,74,left_handed?"HAND: LEFT":"HAND: RIGHT",255,255,255);
+    text(24,96,"STICK CLICK: SWAP",181,207,220);
+    snprintf(label,sizeof label,"GUN ANGLE: %+d",gun_pitch);
+    text(24,128,label,255,255,255);
+    text(24,150,"UP/DOWN: ANGLE",181,207,220);
+    snprintf(label,sizeof label,"WORLD SIZE: %d%%",world_scale);text(24,182,label,255,255,255);
+    text(24,204,"LEFT/RIGHT: SIZE",181,207,220);
     int knob=28+(world_scale-QOPTIONS_WORLD_SCALE_MIN)*583/(QOPTIONS_WORLD_SCALE_MAX-QOPTIONS_WORLD_SCALE_MIN);
     for(int y=216;y<232;y++)for(int x=24;x<616;x++){
         bool handle=x>=knob-4&&x<=knob+4;
@@ -112,7 +114,7 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
     text(24,426,options->machine_gun?"WEAPON: MACHINE GUN":"WEAPON: PISTOL",options->machine_gun?255:181,options->machine_gun?202:207,options->machine_gun?110:220);
     text(24,450,options->wide_fov?"WIDE FOV: ON":"WIDE FOV: OFF",options->wide_fov?255:181,options->wide_fov?202:207,options->wide_fov?110:220);text(448,450,"RIGHT GRIP",181,207,220);
     text(24,474,left_handed?"A RIGHT: RECENTER / CALIBRATE":"X LEFT: RECENTER / CALIBRATE",181,207,220);
-    text(24,498,"LEFT UP/DOWN: CHANGE PAGE",181,207,220);
+    text(24,498,"LEFT STICK: CHANGE PAGE",181,207,220);
     text(24,522,saved?"LEFT MENU: RESUME":"SAVING FAILED",saved?170:255,saved?193:150,saved?206:150);
 }
 static GLuint shader(GLenum type,const char *source){
