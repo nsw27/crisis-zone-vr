@@ -58,11 +58,11 @@ jobs:
           # For native-only CI we provide empty stubs so libmain.so can link.
           mkdir -p upstream/crszone/gen
           cat > upstream/crszone/gen/csz_sub.c << 'STUB'
-          #include "tc2_h8.h"
+          #include "h8_sem.h"
           void tc2sub_run(h8_cpu *c) { (void)c; }
           STUB
           cat > upstream/crszone/gen/csz_io.c << 'STUB'
-          #include "tc2_h8.h"
+          #include "h8_sem.h"
           void tc2io_run(h8_cpu *c) { (void)c; }
           STUB
 
