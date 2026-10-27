@@ -22,6 +22,7 @@ def test(name,sources,extra=(),links=(),capture=False):
             for img in Path(tmp).glob('*.ppm'):shutil.copy2(img,a.out/img.name)
     results[name]='passed';return output
 common=['quest/quest_options.c','quest/quest_cover.c','upstream/crszone/src/csz_game.c']
+test('world-renderer',['tests/quest_world_renderer_fixture.c'],links=['-pthread'])
 test('scene',['tests/crisis_zone_scene_fixture.c','quest/tc2_scene.c'])
 x=test('rays',['tests/quest_candidate_ray_fixture.c','quest/tc2_scene.c'],capture=True)
 y=test('rays-reference',['tests/quest_candidate_ray_fixture.c','quest/tc2_scene.c'],['-DTCVR_RAY_REFERENCE'],capture=True)
