@@ -1,0 +1,26 @@
+name: Source review only - no APK or core build
+on:
+  push:
+    branches: [fix/quest-input-review-no-apk]
+    paths: [.github/workflows/source-review-only.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source for offline review (no compile)
+        shell: bash
+        run: |
+          git archive --format=zip --output=source-review.zip HEAD quest tests tools docs .github README.md LICENSE .gitignore .gitattributes upstream/tc2/src upstream/tc2/include upstream/tc2/gen/tc2_lifted.h upstream/crszone/src upstream/crszone/include upstream/crszone/gen/crszone_lifted.h upstream/SOURCE.json
+          sha256sum source-review.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crisis-zone-source-review
+          path: source-review.zip
+          if-no-files-found: error
+          retention-days: 7
