@@ -51,7 +51,9 @@ jobs:
           # The zip extracts to android-ndk-r29 or android-ndk-r29-*.
           NDK_DIR=$(find .tools -maxdepth 1 -type d -name 'android-ndk-*' | head -1)
           mv "$NDK_DIR" .tools/ndk
-          echo "NDK=$(.tools/ndk/source.properties 2>/dev/null | head -2 || true)"
+          echo "=== NDK source.properties ==="
+          cat .tools/ndk/source.properties
+          grep -q '29.0.14206865' .tools/ndk/source.properties || { echo "NDK revision mismatch"; exit 1; }
           rm /tmp/ndk.zip
 
       - name: Download SDL 2.30.11

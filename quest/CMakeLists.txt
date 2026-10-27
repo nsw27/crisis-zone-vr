@@ -20,12 +20,27 @@ foreach(header ${SDL_HEADERS})
 endforeach()
 include(tc2_sources.cmake)
 
-# ROM-independent static core. CI builds only this and uploads it.
-# The production libmain.so links this archive with the real ROM-generated H8 sources.
-add_library(crisiszone_core STATIC ${TC2_CORE_SOURCES})
-target_compile_definitions(crisiszone_core PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
-target_compile_options(crisiszone_core PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
-target_include_directories(crisiszone_core PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
+# Expected NDK revision. CI and Stage B must both use this exact release.
+set(TC2_NDK_REVISION "29.0.14206865")
+
+# TC2_USE_PRECOMPILED_CORE=<path to libcrisiszone_core.a>
+# When set, the expensive lifted sources are NOT compiled. The archive is imported.
+set(TC2_USE_PRECOMPILED_CORE "" CACHE FILEPATH "Prebuilt libcrisiszone_core.a from CI")
+
+if(TC2_USE_PRECOMPILED_CORE)
+  if(NOT EXISTS "${TC2_USE_PRECOMPILED_CORE}")
+    message(FATAL_ERROR "TC2_USE_PRECOMPILED_CORE not found: ${TC2_USE_PRECOMPILED_CORE}")
+  endif()
+  add_library(crisiszone_core STATIC IMPORTED)
+  set_target_properties(crisiszone_core PROPERTIES IMPORTED_LOCATION "${TC2_USE_PRECOMPILED_CORE}")
+else()
+  # ROM-independent static core. CI builds only this and uploads it.
+  add_library(crisiszone_core STATIC ${TC2_CORE_SOURCES})
+  set_target_properties(crisiszone_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_definitions(crisiszone_core PRIVATE TCVR XR_USE_PLATFORM_ANDROID XR_USE_GRAPHICS_API_OPENGL_ES)
+  target_compile_options(crisiszone_core PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -Wno-unused-variable -Wno-misleading-indentation)
+  target_include_directories(crisiszone_core PRIVATE . include "${CMAKE_BINARY_DIR}/compat" "${TC}/gen" "${TC}/include" "${TC}/src" "${TC}/src/eng" "${XR}/headers/include")
+endif()
 
 # Production shared library. Requires real csz_sub.c / csz_io.c (from the ROM).
 # Not built by the CI core-only job.
