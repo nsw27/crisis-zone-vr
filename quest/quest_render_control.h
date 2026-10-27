@@ -11,3 +11,6 @@ void qtc2_render_stats(QRenderStats *out);
 
 void qtc2_set_profiling(int enabled);
 void qtc2_profile_close(void);
+
+/* Optional spatial smoothing inside the existing final colour resolve. */
+void qtc2_set_edge_smoothing(int enabled);

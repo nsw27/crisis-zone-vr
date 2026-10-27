@@ -13,8 +13,8 @@ typedef struct QOptions { bool laser_enabled,physical_crouch,left_handed; int gu
     bool tracer_enabled; int gun_offset_y_mm,gun_offset_z_mm,player_side; bool texture_filtering; int resolution;
     bool enhanced; bool machine_gun; bool wide_fov;
     int haptics, recoil_strength, refresh_preset; bool muzzle_flash;
-    int scene_density; bool depth_correction,two_hand,cover_toggle,diagnostics,scene_trace; } QOptions;
-static inline int qoptions_row_count(int page){return page==QOPTIONS_PAGE_HANDLING?4:6;}
+    int scene_density; bool depth_correction,two_hand,cover_toggle,diagnostics,scene_trace,edge_smoothing; } QOptions;
+static inline int qoptions_row_count(int page){return page==QOPTIONS_PAGE_HANDLING?4:page==QOPTIONS_PAGE_GRAPHICS?7:6;}
 static inline float qoptions_refresh_hz(int preset){const float hz[]={120,72,90,120};return hz[preset>=0&&preset<4?preset:0];}
 /* Positive Y raises the gun; positive Z pulls it back towards the hand. */
 static inline const char *qoptions_aim_label(const QOptions *o){return o->laser_enabled?"LASER":o->tracer_enabled?"TRACER":"OFF";}

@@ -102,6 +102,10 @@ static bool haptic_active;
 static QTracer tracer;
 static int options_page;
 static int menu_selected;
+#include "quest_menu_pointer.h"
+static QMenuClick menu_click={.hand=-1};
+static V3 menu_head_position;static Q4 menu_head_rotation={0,0,0,1};
+static bool menu_head_valid,menu_pointer_visible;static float menu_pointer_x,menu_pointer_y;
 static bool page_armed;
 static bool replay_input;
 static int coin_frames;
@@ -464,14 +468,15 @@ static bool events(void){
     return !quit&&(result==XR_EVENT_UNAVAILABLE||XR(result));
 }
 static void sync_input(XrTime time,bool head_tracked,float head_y){
-    trigger=pedal=0;aim_valid=gun_tracked=false;
+    trigger=pedal=0;aim_valid=gun_tracked=false;menu_pointer_visible=false;
+    if(!paused||!focused||!head_tracked||!menu_head_valid)menu_click=(QMenuClick){.hand=-1};
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
-    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
+    if(!XR(xrSyncActions(session,&sync))){reset_input_edges();menu_click=(QMenuClick){.hand=-1};return;}
     if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;if(paused)qvr_trace_set(false);filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
-    if(paused&&change_hand){change_weapon_hand();return;}
+    if(paused&&change_hand){change_weapon_hand();menu_click=(QMenuClick){.hand=-1};return;}
     adjust_gun_pitch(time);
     adjust_view_distance(time);
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
@@ -551,6 +556,17 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         if(!aim_valid)gun_hit=add(gun_origin,mul(dir,2.5f));
         if(!paused&&fire_triggers[hand].pressed)trigger=1;
     }else {shot_pending=shot_needs_release=false;support_grip=(QSupportGrip){0};}
+    bool menu_active=paused&&focused&&head_tracked&&menu_head_valid&&gun_tracked&&available[hand];
+    if(menu_active)menu_pointer_visible=qmenu_project(menu_head_position,menu_head_rotation,gun_origin,
+        rotate(gun_rotation,v3(0,0,-1)),&menu_pointer_x,&menu_pointer_y);
+    if(qmenu_click(&menu_click,menu_active,hand,fire[hand].currentState)&&menu_pointer_visible){
+        int page=qmenu_page_at(menu_pointer_x,menu_pointer_y);
+        if(page)change_options_page(page);
+        else{
+            int direction=0,row=qmenu_row_at(options_page,menu_pointer_x,menu_pointer_y,&direction);
+            if(row>=0){menu_selected=row;reset_pitch_input();if(direction)adjust_horizontal(direction);}
+        }
+    }
     if(paused||!gun_tracked||trigger<=.55f||pedal<=.55f)stop_weapon_feedback();
 }
 
@@ -563,6 +579,7 @@ bool tc2_vr_open(void){
     qvr_view_distance=options.view_distance/100.f;
     tc2_depth_mode=options.depth_correction?1:0;
     qtc2_set_scene_percent(qoptions_scene_percent(options.scene_density));
+    qtc2_set_edge_smoothing(options.edge_smoothing);
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -797,7 +814,13 @@ bool ss22_host_frame(void){
             cover_calibration_pending=true;
         }
         bool head_tracked=tracking&&frame.shouldRender&&(vs.viewStateFlags&XR_VIEW_STATE_POSITION_TRACKED_BIT);
+        menu_head_valid=head_tracked&&origin_set;
+        if(menu_head_valid){
+            menu_head_position=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
+            menu_head_rotation=relative_rotation(views[0].pose.orientation);
+        }
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
+        qui_set_pointer(menu_pointer_x,menu_pointer_y,menu_pointer_visible);
         qtc2_set_profiling(options.diagnostics);
         options.scene_trace=qvr_trace_active();
         if(paused)qvr_trace_flush();

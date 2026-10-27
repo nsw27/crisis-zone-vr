@@ -33,7 +33,7 @@ void qui_draw_metrics(const float view[16],const float projection[16],V3 head,Q4
     const int order[6]={0,1,2,0,2,3};float verts[6][5];
     for(int i=0;i<6;i++){int k=order[i];V3 v=add(head,rotate(rotation,v3(xy[k][0],xy[k][1],-1.25f)));verts[i][0]=v.x;verts[i][1]=v.y;verts[i][2]=v.z;verts[i][3]=uv[k][0];verts[i][4]=uv[k][1];}
     glDisable(GL_DEPTH_TEST);glDisable(GL_CULL_FACE);glDisable(GL_SCISSOR_TEST);glColorMask(1,1,1,1);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-    glUseProgram(program);glUniformMatrix4fv(u_view,1,GL_FALSE,view);glUniformMatrix4fv(u_projection,1,GL_FALSE,projection);glUniform1i(u_texture,0);
+    glUseProgram(program);glUniformMatrix4fv(u_view,1,GL_FALSE,view);glUniformMatrix4fv(u_projection,1,GL_FALSE,projection);glUniform1i(u_texture,0);glUniform2f(u_cursor,-10,-10);
     glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,sizeof verts,verts,GL_STREAM_DRAW);
     glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,5*sizeof(float),0);glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,5*sizeof(float),(void*)(3*sizeof(float)));
     glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture(unit);

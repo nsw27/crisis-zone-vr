@@ -150,12 +150,15 @@ static const char *fs_text =
     "  frag = vec4(vec3(col) / 255.0, ua ? float(u_alpha) / 256.0 : 1.0);\n"
     "}\n";
 
+#include "quest_edge_smoothing.h"
 static const char *fs_gamma =
     "#version 300 es\nprecision highp float;precision highp int;out vec4 frag;\n"
     "uniform highp sampler2D t_src, t_lut;uniform vec2 u_output_size;\n"
+    QSCENE_EDGE_GLSL
     "void main() {\n"
     "  ivec2 size=textureSize(t_src,0);\n"
     "  vec3 c=all(equal(size,ivec2(u_output_size)))?texelFetch(t_src,ivec2(gl_FragCoord.xy),0).rgb:texture(t_src,gl_FragCoord.xy/u_output_size).rgb;\n"
+    "  c=edge_smooth(gl_FragCoord.xy/u_output_size,c);\n"
     "  ivec3 i = ivec3(c * 255.0 + 0.5);\n"
     "  frag = vec4(texelFetch(t_lut, ivec2(i.r, 0), 0).r, texelFetch(t_lut, ivec2(i.g, 0), 0).g, texelFetch(t_lut, ivec2(i.b, 0), 0).b, 1.0);\n"
     "}\n";
@@ -195,7 +198,9 @@ static GLint camera_locations[2][4];
 static float uploaded_world_scale,uploaded_view_distance;
 static int vertex_count;
 static GLuint prog_poly, prog_text, prog_gamma, vbo, quad_vbo, t_out, fbo_out, t_lut;
-static GLint ug[3];
+static GLint ug[6];
+static bool edge_smoothing;
+void qtc2_set_edge_smoothing(int enabled){edge_smoothing=enabled!=0;}
 static GLuint t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
 static GLint up[20], ut[16];
 static int near_width,near_height;
@@ -308,6 +313,7 @@ int tc2_gl_init(void)
     if (!(prog_poly = program(vs_poly, fs_poly)) || !(prog_text = program(vs_text, fs_text)) || !(prog_gamma = program(vs_screen, fs_gamma))) return 0;
     ug[0] = glGetUniformLocation(prog_gamma, "t_src"); ug[1] = glGetUniformLocation(prog_gamma, "t_lut");
     ug[2]=glGetUniformLocation(prog_gamma,"u_output_size");
+    ug[3]=glGetUniformLocation(prog_gamma,"u_smooth");ug[4]=glGetUniformLocation(prog_gamma,"u_protect");ug[5]=glGetUniformLocation(prog_gamma,"t_protect");
     const char *cam_names[]={"u_view","u_proj","u_flat","u_cam"};
     const GLuint cam_programs[]={prog_poly,prog_text};
     for(int i=0;i<2;i++)for(int j=0;j<4;j++)camera_locations[i][j]=glGetUniformLocation(cam_programs[i],cam_names[j]);
@@ -449,8 +455,39 @@ static void text_pass(const tc2_built *b, int pass)
     glUniform3i(ut[12], C4(0x16), C4(0x17), C4(0x18)); glUniform1i(ut[13], ex); glUniform1i(ut[14], 3);
     int top=0,bottom=480;if(!qvr_flat_view)qvr_tc2_letterbox(&top,&bottom);glUniform2i(ut[15],top,bottom);
 #undef C4
-    bind_tex(0, t_mix); bind_tex(1, t_pal); bind_tex(2, t_prio); bind_tex(3, t_band);
+    bind_tex(0, t_mix); bind_tex(1, t_pal); bind_tex(2, pass==2?t_prio:0); bind_tex(3, t_band);
     draw_quad();
+}
+
+/* Set scene constants once per eye. Geometry and texture bindings are restored
+ * for each pass because text_pass/draw_quad use the same VAO and texture units. */
+static void polygon_uniforms(const tc2_fx *f)
+{
+    glUseProgram(prog_poly);camera_uniforms(prog_poly);
+    glUniform1i(up[0],0);glUniform1i(up[1],1);glUniform1i(up[2],2);glUniform1i(up[3],3);
+    glUniform1i(up[4],scale);glUniform1i(up[5],fbh);
+    glUniform1i(up[7],f->pr||f->pg||f->pb);glUniform1i(up[8],(f->fflags&1)?0xFF-f->ffactor:0xFF);
+    glUniform1i(up[9],0xFF-f->alpha);glUniform1i(up[10],f->alpha_pen);
+    glUniform3i(up[11],f->pr,f->pg,f->pb);glUniform3i(up[12],f->fr,f->fg,f->fb);
+    glUniform1i(up[13],ex);glUniform1i(up[14],4);glUniform1i(up[15],5);
+    glUniform1f(up[18],tc2_depth_keep());glUniform1i(up[19],texture_filter);
+}
+static void polygon_pass(int pass,bool depth)
+{
+    const GLsizei st=VFLOATS*sizeof(float);
+    const int sizes[]={4,3,4,4,2},offsets[]={0,4,7,11,15};
+    glBindBuffer(GL_ARRAY_BUFFER,vbo);
+    for(int a=A_POS;a<=A_EXT;a++){
+        glEnableVertexAttribArray((GLuint)a);
+        glVertexAttribPointer((GLuint)a,sizes[a],GL_FLOAT,GL_FALSE,st,(void*)((size_t)offsets[a]*sizeof(float)));
+    }
+    glUseProgram(prog_poly);
+    glUniform1i(up[6],pass==1);glUniform1i(up[16],pass==2);glUniform1i(up[17],depth&&pass!=2);
+    bind_tex(0,t_rom);bind_tex(1,t_map);bind_tex(2,t_pal);bind_tex(3,t_sten);
+    bind_tex(4,depth&&pass!=2?t_near:0);bind_tex(5,depth&&pass!=2?t_nearz:0);
+    draw_polygons();
+    for(int a=A_POS;a<=A_EXT;a++)glDisableVertexAttribArray((GLuint)a);
+    bind_tex(4,0);bind_tex(5,0);glActiveTexture(GL_TEXTURE0);
 }
 
 unsigned tc2_gl_draw(const tc2_built *b)
@@ -520,73 +557,39 @@ unsigned tc2_gl_draw(const tc2_built *b)
     if(tc2_depth_on()&&(!fbo_near||near_width!=fbw||near_height!=fbh))targets();
     glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fbw, fbh);
-    /* 1. the background */
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
-    glClearColor((f->bg >> 16 & 0xFF) / 255.0f, (f->bg >> 8 & 0xFF) / 255.0f, (f->bg & 0xFF) / 255.0f, 1);
+    /* Complete each target once: optional nearest-depth -> priority -> colour
+     * -> gamma/output. The original within-target painter/blending order stays
+     * intact. In particular, neither text nor polygons read colour while the
+     * priority map is built, so completing it first introduces no dependency. */
+    const bool polygons=vertex_count>0;
+    const bool depth=polygons&&tc2_depth_on()&&fbo_near;
+    if(polygons)polygon_uniforms(f);
+    if(depth){
+        glBindFramebuffer(GL_FRAMEBUFFER,fbo_near);
+        glClearColor(0,0,0,0);glClearDepthf(0);glDepthMask(GL_TRUE);
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_BLEND);glEnable(GL_DEPTH_TEST);glDepthFunc(GL_GREATER);
+        polygon_pass(2,false);
+        glDisable(GL_DEPTH_TEST);glDepthFunc(GL_LESS);glClearDepthf(1);
+    }
+    if(has_text){
+        glBindFramebuffer(GL_FRAMEBUFFER,fbo_prio);
+        glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ZERO);
+        text_pass(b,0);
+        if(polygons){
+            glBlendEquationSeparate(GL_MAX,GL_FUNC_ADD);
+            glBlendFuncSeparate(GL_ONE,GL_ONE,GL_ONE,GL_ZERO);
+            polygon_pass(1,depth);
+        }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER,fbo_col);
+    glClearColor((f->bg>>16&0xFF)/255.f,(f->bg>>8&0xFF)/255.f,(f->bg&0xFF)/255.f,1);
     glClear(GL_COLOR_BUFFER_BIT);
-    if(has_text){glBindFramebuffer(GL_FRAMEBUFFER,fbo_prio);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}
-    glEnable(GL_BLEND);
-    /* 2. the text layer, under everything (and 'text here' into the priority target) */
-    if (has_text) {
-        glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_ONE, GL_ZERO);
-        text_pass(b, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        text_pass(b, 1);
-    }
-    /* 3. + 4. the polygons, one draw call each into the picture and into the priority target */
-    const int nv=vertex_count;
-    if (nv > 0) {
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-        const GLsizei st = VFLOATS * sizeof(float);
-        glEnableVertexAttribArray(A_POS); glVertexAttribPointer(A_POS, 4, GL_FLOAT, GL_FALSE, st, (void *)0);
-        glEnableVertexAttribArray(A_UVS); glVertexAttribPointer(A_UVS, 3, GL_FLOAT, GL_FALSE, st, (void *)(4 * sizeof(float)));
-        glEnableVertexAttribArray(A_PAR); glVertexAttribPointer(A_PAR, 4, GL_FLOAT, GL_FALSE, st, (void *)(7 * sizeof(float)));
-        glEnableVertexAttribArray(A_CLIP); glVertexAttribPointer(A_CLIP, 4, GL_FLOAT, GL_FALSE, st, (void *)(11 * sizeof(float)));
-        glEnableVertexAttribArray(A_EXT); glVertexAttribPointer(A_EXT, 2, GL_FLOAT, GL_FALSE, st, (void *)(15 * sizeof(float)));
-        glUseProgram(prog_poly);camera_uniforms(prog_poly);
-        glUniform1i(up[0], 0); glUniform1i(up[1], 1); glUniform1i(up[2], 2); glUniform1i(up[3], 3);
-        glUniform1i(up[4], scale); glUniform1i(up[5], fbh);
-        glUniform1i(up[7], f->pr || f->pg || f->pb); glUniform1i(up[8], (f->fflags & 1) ? 0xFF - f->ffactor : 0xFF);
-        glUniform1i(up[9], 0xFF - f->alpha); glUniform1i(up[10], f->alpha_pen);
-        glUniform3i(up[11], f->pr, f->pg, f->pb); glUniform3i(up[12], f->fr, f->fg, f->fb); glUniform1i(up[13], ex);
-        bind_tex(0, t_rom); bind_tex(1, t_map); bind_tex(2, t_pal); bind_tex(3, t_sten);
-        glUniform1i(up[14], 4); glUniform1i(up[15], 5); glUniform1i(up[16], 0);
-        const int depth = tc2_depth_on() && fbo_near;
-        glUniform1i(up[17], 0); glUniform1f(up[18], tc2_depth_keep());
-        glUniform1i(up[19],texture_filter);
-        if (depth) {                                     /* EXACT DEPTH pre-pass: nearest opaque object / band / 1/z per pixel */
-            bind_tex(4, 0); bind_tex(5, 0);
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo_near);
-            glClearColor(0, 0, 0, 0); glClearDepthf(0.0); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            glDisable(GL_BLEND); glEnable(GL_DEPTH_TEST); glDepthFunc(GL_GREATER); glDepthMask(GL_TRUE);
-            glUniform1i(up[6], 0); glUniform1i(up[16], 1);
-            draw_polygons();
-            glDisable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glClearDepthf(1.0); glEnable(GL_BLEND);
-            glUniform1i(up[16], 0); glUniform1i(up[17], 1);
-            bind_tex(4, t_near); bind_tex(5, t_nearz);
-        }
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
-        glUniform1i(up[6], 0);
-        glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        draw_polygons();
-        if (has_text) {
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo_prio);
-            glUniform1i(up[6], 1);
-            glBlendEquationSeparate(GL_MAX, GL_FUNC_ADD); glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ZERO);
-            draw_polygons();
-            glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-        }
-        for (int a = A_POS; a <= A_EXT; a++) glDisableVertexAttribArray((GLuint)a);
-        bind_tex(4, 0); bind_tex(5, 0); glActiveTexture(GL_TEXTURE0);
-    }
-    /* 5. the text the polygons let through again */
-    if (has_text) {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        text_pass(b, 2);
-    }
+    glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    if(has_text)text_pass(b,1);
+    if(polygons)polygon_pass(0,depth);
+    if(has_text)text_pass(b,2);
     /* 6. the C404's GAMMA (the game's own R / G / B curves), into the picture the window shows */
     {
         glDisable(GL_BLEND);
@@ -594,7 +597,9 @@ unsigned tc2_gl_draw(const tc2_built *b)
         glViewport(0,0,output_width,output_height);
         glUseProgram(prog_gamma); glUniform1i(ug[0], 0); glUniform1i(ug[1], 1);glUniform2f(ug[2],(float)output_width,(float)output_height);
         bind_tex(0,t_col);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-        bind_tex(1,t_lut);draw_quad();
+        glUniform1i(ug[3],edge_smoothing&&!qvr_scene_is_panel());
+        glUniform1i(ug[4],has_text);glUniform1i(ug[5],2);
+        bind_tex(2,has_text?t_prio:0);bind_tex(1,t_lut);draw_quad();
     }
     /* back to the state the window and the menu expect */
     glDisable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -626,10 +631,12 @@ static uint8_t *readback_pixels(void) {
     }
     glBindFramebuffer(GL_FRAMEBUFFER,fbo_out);glViewport(0,0,fbw,fbh);glBindVertexArray(vao);
     glDisable(GL_BLEND);glDisable(GL_DEPTH_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);
-    glUseProgram(prog_gamma);glUniform1i(ug[0],0);glUniform1i(ug[1],1);glUniform2f(ug[2],(float)fbw,(float)fbh);bind_tex(0,t_col);bind_tex(1,t_lut);draw_quad();
+    glUseProgram(prog_gamma);glUniform1i(ug[0],0);glUniform1i(ug[1],1);glUniform2f(ug[2],(float)fbw,(float)fbh);
+    glUniform1i(ug[3],edge_smoothing&&!qvr_scene_is_panel());glUniform1i(ug[4],has_text);glUniform1i(ug[5],2);
+    bind_tex(2,has_text?t_prio:0);bind_tex(0,t_col);bind_tex(1,t_lut);draw_quad();
     glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,fbw,fbh,GL_RGBA,GL_UNSIGNED_BYTE,pixels);glPixelStorei(GL_PACK_ALIGNMENT,pack);
     glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)previous);glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
-    glUseProgram(0);glBindBuffer(GL_ARRAY_BUFFER,0);bind_tex(1,0);bind_tex(0,0);
+    glUseProgram(0);glBindBuffer(GL_ARRAY_BUFFER,0);bind_tex(2,0);bind_tex(1,0);bind_tex(0,0);
     return pixels;
 }
 void tc2_gl_read(uint32_t *rgba) {

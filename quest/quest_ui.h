@@ -9,3 +9,5 @@ void qui_shutdown(void);
 
 void qui_metrics_update(const char *a,const char *b,const char *c,const char *d);
 void qui_draw_metrics(const float view[16],const float projection[16],V3 head,Q4 rotation);
+
+void qui_set_pointer(float x,float y,bool visible);

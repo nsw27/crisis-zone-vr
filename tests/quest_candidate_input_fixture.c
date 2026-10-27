@@ -6,7 +6,8 @@ static QGunKind test_model;
 int tc2_depth_mode;
 void qvr_trace_set(bool on){(void)on;}
 void qvr_trace_flush(void){}
-static int test_density=100;
+static int test_density=100,test_smoothing;
+void qtc2_set_edge_smoothing(int on){test_smoothing=on!=0;}
 void qtc2_set_scene_percent(int p){test_density=p;}
 bool qgun_available(QGunKind k){return k==QGUN_PISTOL||k==QGUN_MACHINE_GUN;}
 void qgun_select(QGunKind k){test_model=k;}
@@ -136,10 +137,36 @@ int main(void){
     stick_x=0;tick();assert(qoptions_refresh_hz(1)==72&&qoptions_refresh_hz(2)==90&&qoptions_refresh_hz(3)==120);
     menu_selected=3;stick_x=1;tick();assert(options.scene_density==1&&test_density==85);stick_x=0;tick();
     menu_selected=4;stick_x=1;tick();assert(options.depth_correction&&tc2_depth_mode==1);stick_x=0;tick();
+    menu_selected=5;stick_x=1;tick();assert(options.edge_smoothing&&test_smoothing);stick_x=0;tick();
+    qoptions_load(options_path,&roundtrip);assert(roundtrip.edge_smoothing);
+    click(pitch_reset_action,2);assert(!options.edge_smoothing&&!test_smoothing);
     options_page=QOPTIONS_PAGE_HANDLING;menu_selected=0;stick_x=1;tick();assert(options.two_hand);stick_x=0;tick();
     menu_selected=1;stick_x=1;tick();assert(options.cover_toggle);stick_x=0;tick();
     qoptions_load(options_path,&roundtrip);assert(roundtrip.scene_density==1&&roundtrip.depth_correction&&roundtrip.two_hand&&roundtrip.cover_toggle);
     options.two_hand=options.cover_toggle=false;
+    /* Point-and-trigger uses the same production menu actions, while paused.
+     * Label clicks select; +/- clicks edit; a held trigger must never repeat. */
+    focused=running=origin_set=paused=true;menu_head_valid=true;menu_head_position=v3(0,0,0);
+    menu_head_rotation=origin_rotation=controller_rotation=(Q4){0,0,0,1};origin=v3(0,1.7f,0);
+    options.gun_pitch=options.gun_offset_y_mm=options.gun_offset_z_mm=0;
+    tracked[0]=tracked[1]=connected[0]=connected[1]=true;select_weapon_hand(RIGHT_HAND);
+    options_page=QOPTIONS_PAGE_GRAPHICS;menu_selected=0;options.edge_smoothing=false;
+    menu_click=(QMenuClick){.hand=-1};triggers[0]=triggers[1]=0;
+    controller_positions[RIGHT_HAND]=(XrVector3f){(604.f/640-.5f)*1.3f,1.7f+(.5f-252.f/480)*.975f,-.5f};
+    tick();assert(menu_pointer_visible);triggers[RIGHT_HAND]=1;tick();
+    assert(menu_selected==5&&options.edge_smoothing&&!(tc2_inputs&0x30));
+    tick();assert(options.edge_smoothing);triggers[RIGHT_HAND]=0;tick();
+    controller_positions[RIGHT_HAND].x=(200.f/640-.5f)*1.3f;
+    controller_positions[RIGHT_HAND].y=1.7f+(.5f-132.f/480)*.975f;
+    bool old_filter=options.texture_filtering;triggers[RIGHT_HAND]=1;tick();assert(menu_selected==1&&options.texture_filtering==old_filter);
+    /* Press outside, move inside while held: no delayed button activation. */
+    triggers[RIGHT_HAND]=0;tick();controller_positions[RIGHT_HAND].x=5;triggers[RIGHT_HAND]=1;tick();assert(!menu_pointer_visible);
+    controller_positions[RIGHT_HAND].x=(604.f/640-.5f)*1.3f;tick();assert(options.texture_filtering==old_filter);
+    triggers[RIGHT_HAND]=0;tick();controller_positions[RIGHT_HAND].y=1.7f+(.5f-58.f/480)*.975f;
+    triggers[RIGHT_HAND]=1;tick();assert(options_page==QOPTIONS_PAGE_HANDLING);tick();assert(options_page==QOPTIONS_PAGE_HANDLING);
+    tracked[RIGHT_HAND]=false;tick();assert(!menu_pointer_visible);tracked[RIGHT_HAND]=true;tick();assert(options_page==QOPTIONS_PAGE_HANDLING);
+    menu_head_valid=false;triggers[0]=triggers[1]=0;tick();assert(!menu_pointer_visible);
+    controller_positions[RIGHT_HAND]=(XrVector3f){.25f,1.4f,-.5f};
     /* Illegal inputs cannot generate undefined float/integer conversions. */
     nx=NAN;ny=INFINITY;aim_valid=true;ss22_input_update();assert(g_ss22_gun_off);
     nx=-1000;ny=1000;ss22_input_update();assert(g_ss22_gun_x==64&&g_ss22_gun_y==255&&g_ss22_gun_off);

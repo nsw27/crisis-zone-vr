@@ -32,6 +32,13 @@ int main(int argc,char **argv){
             }
         }
     }
+    /* Cursor is a uniform, not a per-frame upload of the entire menu texture. */
+    selected=0;qui_set_pointer(100,100,false);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);unsigned long no_pointer=image_hash();
+    qui_set_pointer(100,100,true);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);assert(image_hash()!=no_pointer);
+    qui_set_pointer(NAN,100,true);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);assert(image_hash()==no_pointer);
     qui_metrics_update("SCENE CPU 1.2 MS/EYE | GPU n/a MS/EYE","RENDER 90 FPS | GAME 59.9 FPS","SCENE 1120 X 1080 (85%) | TRI 1400","UPLOAD 1234 KB/S | WORLD DRAWS 12/FRAME");
     qui_draw_metrics(v,p,v3(0,0,0),(Q4){0,0,0,1});assert(glGetError()==GL_NO_ERROR);
     char file[2048];snprintf(file,sizeof file,"%s/quest/assets/models/namco-gun.tcgun",argv[1]);assert(qgun_init(file));
@@ -45,5 +52,5 @@ int main(int argc,char **argv){
         }
     }
     qgun_shutdown();qui_shutdown();eglMakeCurrent(d,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);eglDestroyContext(d,c);eglDestroySurface(d,s);eglTerminate(d);
-    puts("PASS: all 22 menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors");return 0;
+    puts("PASS: all 23 menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors");return 0;
 }

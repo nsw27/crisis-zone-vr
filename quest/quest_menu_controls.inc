@@ -7,6 +7,7 @@ static void adjust_horizontal(int direction){
         else if(menu_selected==2){options.refresh_preset=(options.refresh_preset+direction+4)%4;save_comfort();}
         else if(menu_selected==3){options.scene_density=(options.scene_density+direction+3)%3;qtc2_set_scene_percent(qoptions_scene_percent(options.scene_density));save_comfort();}
         else if(menu_selected==4){options.depth_correction=!options.depth_correction;tc2_depth_mode=options.depth_correction?1:0;save_comfort();}
+        else if(menu_selected==5){options.edge_smoothing=!options.edge_smoothing;qtc2_set_edge_smoothing(options.edge_smoothing);save_comfort();}
         else{options.diagnostics=!options.diagnostics;save_comfort();}
     }else if(options_page==QOPTIONS_PAGE_HANDLING){
         if(menu_selected==0){options.two_hand=!options.two_hand;reset_fire_input();}
@@ -37,6 +38,7 @@ static void reset_page_setting(void){
         else if(menu_selected==2){options.refresh_preset=0;save_comfort();}
         else if(menu_selected==3){options.scene_density=0;qtc2_set_scene_percent(100);save_comfort();}
         else if(menu_selected==4){options.depth_correction=false;tc2_depth_mode=0;save_comfort();}
+        else if(menu_selected==5){options.edge_smoothing=false;qtc2_set_edge_smoothing(0);save_comfort();}
         else{options.diagnostics=false;save_comfort();}
     }else if(options_page==QOPTIONS_PAGE_HANDLING){
         if(menu_selected==0)options.two_hand=false;

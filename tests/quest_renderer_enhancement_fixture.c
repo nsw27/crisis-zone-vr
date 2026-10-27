@@ -7,6 +7,12 @@
 #include <string.h>
 #include "quest_gpu.h"
 static int count_calls;
+static GLuint tracked_fbo;static unsigned long long measured_switches;
+static void tracked_bind(GLenum target,GLuint fbo){
+    if(target==GL_FRAMEBUFFER){if(count_calls&&fbo!=tracked_fbo)measured_switches++;tracked_fbo=fbo;}
+    glBindFramebuffer(target,fbo);
+}
+#define glBindFramebuffer tracked_bind
 static unsigned long long measured_uploads,measured_texbytes,measured_vertexbytes;
 static void tracked_image(GLenum target,GLint level,GLint internal,GLsizei w,GLsizei h,GLint border,GLenum fmt,GLenum type,const void *data);
 static void tracked_sub(GLenum target,GLint level,GLint x,GLint y,GLsizei w,GLsizei h,GLenum fmt,GLenum type,const void *data);
@@ -22,6 +28,7 @@ static void tracked_buffer(GLenum target,GLsizeiptr bytes,const void *data,GLenu
 #undef glTexImage2D
 #undef glTexSubImage2D
 #undef glBufferData
+#undef glBindFramebuffer
 static unsigned channels(GLenum fmt){return fmt==GL_RGBA?4:fmt==GL_RGB?3:fmt==GL_RG?2:1;}
 static void tracked_image(GLenum target,GLint level,GLint internal,GLsizei w,GLsizei h,GLint border,GLenum fmt,GLenum type,const void *data){
     if(count_calls&&data){measured_uploads++;measured_texbytes+=(unsigned long long)w*h*channels(fmt)*(type==GL_FLOAT?4:1);}
@@ -71,6 +78,9 @@ static void populate(tc2_built *b,int kind){
         b->order[i]=(uint32_t)i;
     }
 }
+#ifndef QTEST_CASES
+#define QTEST_CASES 12
+#endif
 int main(int argc,char **argv){
     assert(argc==2);EGLDisplay d=eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,EGL_DEFAULT_DISPLAY,NULL);
     assert(d!=EGL_NO_DISPLAY&&eglInitialize(d,NULL,NULL)&&eglBindAPI(EGL_OPENGL_ES_API));
@@ -83,9 +93,20 @@ int main(int argc,char **argv){
     tc2_built *b[2]={calloc(1,sizeof *b[0]),calloc(1,sizeof *b[0])};assert(b[0]&&b[1]);
     FILE *f=fopen(argv[1],"wb");assert(f);float v[16],p[16];projection(p,-.65f,.65f,-.5f,.5f);
     count_calls=1;
-    for(int kind=0;kind<12;kind++){
+    for(int kind=0;kind<QTEST_CASES;kind++){
         tc2_built *frame=b[kind%2];populate(frame,kind);qvr_world_scale=1;qvr_view_distance=0;qvr_units_per_meter=1;qvr_flat_view=kind%2;
         use_depth=kind>=6;
+        if(kind>=12){
+            use_depth=kind%2;tc2_gl_set_filter((kind/2)%2);
+            if(kind%5==0)frame->npoly=0; /* text-only frames */
+            if(kind%5==1){frame->npoly=0;frame->fx.layers=0;} /* empty frames */
+            frame->fx.fflags=1;frame->fx.ffactor=(kind*7)%256;
+            frame->fx.pr=(kind*13)%256;frame->fx.pg=(kind*19)%256;frame->fx.pb=(kind*23)%256;
+            frame->fx.alpha=(kind*11)%256;
+            frame->fs.c404[0x1A*2+1]=2;frame->fs.c404[0x19*2+1]=kind%128;
+            frame->fs.c404[0x15*2+1]=kind%64;
+            for(int j=0;j<frame->npoly;j++)frame->polys[j].prioverchar=(kind+j)%8;
+        }
         qvr_scene_prepare(frame);
         for(int eye=0;eye<2;eye++){
             view_matrix(v,v3(eye?.032f:-.032f,0,0),(Q4){0,0,0,1});
@@ -99,7 +120,7 @@ int main(int argc,char **argv){
 #endif
         }
     }
-    fclose(f);count_calls=0;
+    fclose(f);count_calls=0;fprintf(stderr,"TARGET_SWITCHES %llu\n",measured_switches);
     fprintf(stderr,"COMPARED texture_uploads=%llu texture_bytes=%llu buffer_bytes=%llu\n",measured_uploads,measured_texbytes,measured_vertexbytes);
 #ifndef QTEST_BASELINE
     /* Actual render targets change, but full-resolution eye viewport is restored. */

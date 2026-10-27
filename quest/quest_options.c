@@ -11,15 +11,15 @@ void qoptions_load(const char *path,QOptions *options){
     FILE *f=fopen(path,"r");if(!f)return;
     char line[128],extra;int value;
     while(fgets(line,sizeof line,f)){
-        const char *new_keys[]={"scene_density=","depth_correction=","two_hand=","cover_toggle=","diagnostics=","scene_trace="};
-        for(int k=0;k<6;k++){
+        const char *new_keys[]={"scene_density=","depth_correction=","two_hand=","cover_toggle=","diagnostics=","scene_trace=","edge_smoothing="};
+        for(int k=0;k<7;k++){
             size_t n=strlen(new_keys[k]);if(strncmp(line,new_keys[k],n))continue;
             char *end;errno=0;long v=strtol(line+n,&end,10);
             if(end==line+n||errno||v<0||v>(k==0?2:1))continue;
             while(isspace((unsigned char)*end))end++;if(*end)continue;
             switch(k){case 0:options->scene_density=(int)v;break;case 1:options->depth_correction=v!=0;break;
             case 2:options->two_hand=v!=0;break;case 3:options->cover_toggle=v!=0;break;
-            case 4:options->diagnostics=v!=0;break;case 5:options->scene_trace=v!=0;break;}
+            case 4:options->diagnostics=v!=0;break;case 5:options->scene_trace=v!=0;break;case 6:options->edge_smoothing=v!=0;break;}
         }
         const char *extra_keys[]={"haptics=","recoil_strength=","refresh_preset=","muzzle_flash="};
         int limits[]={100,100,3,1};
@@ -95,6 +95,7 @@ bool qoptions_save(const char *path,const QOptions *options){
                options->haptics,options->recoil_strength,options->refresh_preset,options->muzzle_flash?1:0)<0)ok=false;
     if(fprintf(f,"scene_density=%d\ndepth_correction=%d\ntwo_hand=%d\ncover_toggle=%d\ndiagnostics=%d\nscene_trace=%d\n",
        options->scene_density,options->depth_correction,options->two_hand,options->cover_toggle,options->diagnostics,options->scene_trace)<0)ok=false;
+    if(fprintf(f,"edge_smoothing=%d\n",options->edge_smoothing?1:0)<0)ok=false;
     if(fclose(f))ok=false;
     return ok;
 }
