@@ -10,15 +10,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: upstream/include
       - name: Install test development headers
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libegl-dev libgles-dev libsdl2-dev libopenxr-dev
       - name: Collect test dependencies (no compile)
         run: |
-          mkdir -p review-deps/include/SDL2 review-deps/lib
+          mkdir -p review-deps/include/SDL2 review-deps/lib review-deps/project/upstream/include
           cp -a /usr/include/EGL /usr/include/GLES /usr/include/GLES2 /usr/include/GLES3 /usr/include/KHR /usr/include/openxr /usr/include/SDL2 review-deps/include/
           cp -a /usr/include/x86_64-linux-gnu/SDL2/_real_SDL_config.h review-deps/include/SDL2/
+          cp upstream/include/font_data.h review-deps/project/upstream/include/
           cp -L /usr/lib/x86_64-linux-gnu/libSDL2.so /usr/lib/x86_64-linux-gnu/libEGL.so /usr/lib/x86_64-linux-gnu/libGLESv2.so review-deps/lib/
           tar -czf quest-review-deps.tar.gz review-deps
       - uses: actions/upload-artifact@v4
