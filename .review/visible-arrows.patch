@@ -1,0 +1,52 @@
+--- a/quest/quest_ui.c
++++ b/quest/quest_ui.c
+@@ -43,6 +43,17 @@
+         }
+     }
+ }
++/* The bundled arcade font has blank < and > glyphs. Draw visible chevrons
++ * directly inside the same page-button bounds used by pointer hit testing. */
++static void page_arrow(int cx,int cy,int direction){
++    for(int dy=-8;dy<=8;dy++){
++        int dx=direction*(6-(dy<0?-dy:dy));
++        for(int thick=-1;thick<=1;thick++){
++            uint8_t *p=pixels+((cy+dy)*WIDTH+cx+dx+thick)*4;
++            p[0]=255;p[1]=220;p[2]=100;p[3]=255;
++        }
++    }
++}
+ static int boot_resolution,last_resolution;
+ static unsigned active_width,active_height;
+ void qui_set_resolution(int preset,unsigned width,unsigned height){
+@@ -56,7 +67,7 @@
+     }
+     const char *titles[]={"CONTROLS  1/4","WEAPON / COMFORT  2/4","GRAPHICS  3/4","HANDLING / DIAGNOSTICS  4/4"};
+     if(page<0||page>=QOPTIONS_PAGE_COUNT)page=0;
+-    text(24,20,"CRISIS ZONE VR - PREVIEW 3",255,220,100);text(72,50,titles[page],181,207,220);text(24,50,"<",255,220,100);text(592,50,">",255,220,100);
++    text(24,20,"CRISIS ZONE VR - PREVIEW 3",255,220,100);text(72,50,titles[page],181,207,220);page_arrow(36,58,-1);page_arrow(604,58,1);
+     char rows[7][40]={{0}};int count=qoptions_row_count(page);
+     if(page==0){
+         snprintf(rows[0],40,"GUN ANGLE: %+d DEG",o->gun_pitch);
+--- a/tests/quest_candidate_graphics_fixture.c
++++ b/tests/quest_candidate_graphics_fixture.c
+@@ -32,6 +32,20 @@
+             }
+         }
+     }
++    /* Render pixel-aligned panel: both actual page buttons must be visible,
++     * including when the bundled font has no less/greater-than glyphs. */
++    float av[16]={0},ap[16]={0};av[0]=av[5]=av[10]=av[15]=1;
++    ap[0]=1/.65f;ap[5]=1/.4875f;ap[15]=1;selected=0;
++    glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
++    qui_draw(av,ap,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);image_hash();
++    for(int side=0;side<2;side++){
++        int gold=0,left=side?584:16;
++        for(int y=42;y<76;y++)for(int x=left;x<left+40;x++){
++            const unsigned char *px=pixels+((479-y)*640+x)*4;
++            if(px[0]>180&&px[1]>140&&px[2]<160)gold++;
++        }
++        assert(gold>=20);
++    }
+     /* Cursor is a uniform, not a per-frame upload of the entire menu texture. */
+     selected=0;qui_set_pointer(100,100,false);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+     qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);unsigned long no_pointer=image_hash();
