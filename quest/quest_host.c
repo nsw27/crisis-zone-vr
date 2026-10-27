@@ -877,6 +877,7 @@ void ss22_input_event(const SDL_Event *e){(void)e;}
 void ss22_input_motor(uint8_t b){(void)b;}
 void ss22_input_close(void){}
 bool ss22_input_aim(float *x,float *y){*x=nx;*y=ny;return aim_valid;}
+int qvr_menu_selected(void){return menu_selected;}
 void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
     (void)lo;if(!focused||!running)return;XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;
     info.subactionPath=hand_paths[weapon_hand()];
