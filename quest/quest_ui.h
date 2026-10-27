@@ -6,3 +6,6 @@ bool qui_init(void);
 void qui_set_resolution(int preset,unsigned width,unsigned height);
 void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotation,const QOptions *options,int page,int boot_side,bool saved);
 void qui_shutdown(void);
+
+void qui_metrics_update(const char *a,const char *b,const char *c,const char *d);
+void qui_draw_metrics(const float view[16],const float projection[16],V3 head,Q4 rotation);

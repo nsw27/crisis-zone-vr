@@ -11,6 +11,16 @@ void qoptions_load(const char *path,QOptions *options){
     FILE *f=fopen(path,"r");if(!f)return;
     char line[128],extra;int value;
     while(fgets(line,sizeof line,f)){
+        const char *new_keys[]={"scene_density=","depth_correction=","two_hand=","cover_toggle=","diagnostics=","scene_trace="};
+        for(int k=0;k<6;k++){
+            size_t n=strlen(new_keys[k]);if(strncmp(line,new_keys[k],n))continue;
+            char *end;errno=0;long v=strtol(line+n,&end,10);
+            if(end==line+n||errno||v<0||v>(k==0?2:1))continue;
+            while(isspace((unsigned char)*end))end++;if(*end)continue;
+            switch(k){case 0:options->scene_density=(int)v;break;case 1:options->depth_correction=v!=0;break;
+            case 2:options->two_hand=v!=0;break;case 3:options->cover_toggle=v!=0;break;
+            case 4:options->diagnostics=v!=0;break;case 5:options->scene_trace=v!=0;break;}
+        }
         const char *extra_keys[]={"haptics=","recoil_strength=","refresh_preset=","muzzle_flash="};
         int limits[]={100,100,3,1};
         for(int k=0;k<4;k++){
@@ -76,12 +86,15 @@ void qoptions_load(const char *path,QOptions *options){
         }
     }
     fclose(f);
+    options->scene_trace=false; /* one-shot command, never record automatically on load */
 }
 bool qoptions_save(const char *path,const QOptions *options){
     FILE *f=fopen(path,"w");if(!f)return false;
     bool ok=fprintf(f,"resolution=%d\ntexture_filtering=%d\nlaser_enabled=%d\nphysical_crouch=%d\nleft_handed=%d\ngun_pitch=%d\nworld_scale=%d\nview_distance=%d\ntracer_enabled=%d\ngun_offset_y_mm=%d\ngun_offset_z_mm=%d\nplayer_side=%d\nenhanced=%d\nmachine_gun=%d\nwide_fov=%d\n",options->resolution,options->texture_filtering?1:0,options->laser_enabled?1:0,options->physical_crouch?1:0,options->left_handed?1:0,options->gun_pitch,options->world_scale,options->view_distance,options->tracer_enabled?1:0,options->gun_offset_y_mm,options->gun_offset_z_mm,options->player_side,options->enhanced?1:0,options->machine_gun?1:0,options->wide_fov?1:0)>0;
     if(fprintf(f,"haptics=%d\nrecoil_strength=%d\nrefresh_preset=%d\nmuzzle_flash=%d\n",
                options->haptics,options->recoil_strength,options->refresh_preset,options->muzzle_flash?1:0)<0)ok=false;
+    if(fprintf(f,"scene_density=%d\ndepth_correction=%d\ntwo_hand=%d\ncover_toggle=%d\ndiagnostics=%d\nscene_trace=%d\n",
+       options->scene_density,options->depth_correction,options->two_hand,options->cover_toggle,options->diagnostics,options->scene_trace)<0)ok=false;
     if(fclose(f))ok=false;
     return ok;
 }

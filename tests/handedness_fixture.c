@@ -20,6 +20,7 @@ static float distance_x,distance_y;
 static bool distance_active=true;
 static bool stick_active=true;
 static Q4 controller_rotation={0,0,0,1};
+static XrVector3f controller_positions[2]={{-.25f,1.4f,-.5f},{.25f,1.4f,-.5f}};
 static float triggers[2],grips[2];
 static XrTime trigger_times[2];
 static bool trigger_active[2]={true,true};
@@ -95,7 +96,7 @@ XRAPI_ATTR XrResult XRAPI_CALL xrGetActionStateVector2f(XrSession s,const XrActi
 XRAPI_ATTR XrResult XRAPI_CALL xrLocateSpace(XrSpace space,XrSpace base,XrTime t,XrSpaceLocation *out){
     (void)base;(void)t;int h=(int)(uintptr_t)space-1;assert(h==0||h==1);
     out->locationFlags=tracked[h]?XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_VALID_BIT:0;
-    out->pose=(XrPosef){{controller_rotation.x,controller_rotation.y,controller_rotation.z,controller_rotation.w},{h==LEFT_HAND?-.25f:.25f,1.4f,-.5f}};return XR_SUCCESS;
+    out->pose=(XrPosef){{controller_rotation.x,controller_rotation.y,controller_rotation.z,controller_rotation.w},controller_positions[h]};return XR_SUCCESS;
 }
 XRAPI_ATTR XrResult XRAPI_CALL xrApplyHapticFeedback(XrSession s,const XrHapticActionInfo *info,const XrHapticBaseHeader *v){
     (void)s;(void)v;assert(info->action==haptic_action&&dual[id(info->action)]);

@@ -4,7 +4,16 @@ static void adjust_horizontal(int direction){
     if(options_page==QOPTIONS_PAGE_GRAPHICS){
         if(menu_selected==0)set_resolution((options.resolution+direction+QRESOLUTION_COUNT)%QRESOLUTION_COUNT);
         else if(menu_selected==1)toggle_texture_filter();
-        else {options.refresh_preset=(options.refresh_preset+direction+4)%4;save_comfort();}
+        else if(menu_selected==2){options.refresh_preset=(options.refresh_preset+direction+4)%4;save_comfort();}
+        else if(menu_selected==3){options.scene_density=(options.scene_density+direction+3)%3;qtc2_set_scene_percent(qoptions_scene_percent(options.scene_density));save_comfort();}
+        else if(menu_selected==4){options.depth_correction=!options.depth_correction;tc2_depth_mode=options.depth_correction?1:0;save_comfort();}
+        else{options.diagnostics=!options.diagnostics;save_comfort();}
+    }else if(options_page==QOPTIONS_PAGE_HANDLING){
+        if(menu_selected==0){options.two_hand=!options.two_hand;reset_fire_input();}
+        else if(menu_selected==1){options.cover_toggle=!options.cover_toggle;reset_fire_input();}
+        else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;reset_fire_input();}
+        else{options.scene_trace=!options.scene_trace;qvr_trace_set(options.scene_trace);}
+        save_comfort();
     }else if(options_page==1){
         if(menu_selected==0)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
         else if(menu_selected==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
@@ -25,7 +34,16 @@ static void adjust_vertical(int direction){adjust_horizontal(direction);}
 static void reset_page_setting(void){
     if(options_page==QOPTIONS_PAGE_GRAPHICS){
         if(menu_selected==0)set_resolution(0);else if(menu_selected==1){if(!options.texture_filtering)toggle_texture_filter();}
-        else{options.refresh_preset=0;save_comfort();}
+        else if(menu_selected==2){options.refresh_preset=0;save_comfort();}
+        else if(menu_selected==3){options.scene_density=0;qtc2_set_scene_percent(100);save_comfort();}
+        else if(menu_selected==4){options.depth_correction=false;tc2_depth_mode=0;save_comfort();}
+        else{options.diagnostics=false;save_comfort();}
+    }else if(options_page==QOPTIONS_PAGE_HANDLING){
+        if(menu_selected==0)options.two_hand=false;
+        else if(menu_selected==1)options.cover_toggle=false;
+        else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;}
+        else{options.scene_trace=false;qvr_trace_set(false);qvr_trace_flush();}
+        reset_fire_input();save_comfort();
     }else if(options_page==1){
         if(menu_selected==0)set_gun_offset(true,0);else if(menu_selected==1)set_gun_offset(false,0);
         else if(menu_selected==2){options.machine_gun=true;apply_weapon_model();save_comfort();}

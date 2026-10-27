@@ -13,7 +13,7 @@ enum { WIDTH=640,HEIGHT=480 };
 static GLuint program,vao,vbo,texture;
 static GLint u_view,u_projection,u_texture;
 static int last_state=-1;
-static int last_selected=-1,last_haptics=-1,last_recoil=-1,last_refresh=-1;
+static int last_selected=-1,last_haptics=-1,last_recoil=-1,last_refresh=-1,last_enhancements=-1;
 static int last_pitch,last_scale,last_distance;
 static int last_y,last_z,last_player,last_boot;
 static uint8_t pixels[WIDTH*HEIGHT*4];
@@ -48,8 +48,9 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
         uint8_t *p=pixels+(y*WIDTH+x)*4;bool edge=x<2||x>=WIDTH-2||y<2||y>=HEIGHT-2;
         p[0]=edge?54:12;p[1]=edge?183:19;p[2]=edge?207:29;p[3]=edge?255:245;
     }
-    const char *titles[]={"CONTROLS  1/3","WEAPON / COMFORT  2/3","GRAPHICS  3/3"};
-    text(24,20,"CRISIS ZONE VR - PREVIEW",255,220,100);text(24,50,titles[page],181,207,220);
+    const char *titles[]={"CONTROLS  1/4","WEAPON / COMFORT  2/4","GRAPHICS  3/4","HANDLING / DIAGNOSTICS  4/4"};
+    if(page<0||page>=QOPTIONS_PAGE_COUNT)page=0;
+    text(24,20,"CRISIS ZONE VR - PREVIEW 2",255,220,100);text(24,50,titles[page],181,207,220);
     char rows[6][40]={{0}};int count=qoptions_row_count(page);
     if(page==0){
         snprintf(rows[0],40,"GUN ANGLE: %+d DEG",o->gun_pitch);
@@ -65,16 +66,30 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
         snprintf(rows[3],40,"VISUAL RECOIL: %d%%",o->recoil_strength);
         snprintf(rows[4],40,"CONTROLLER RUMBLE: %d%%",o->haptics);
         snprintf(rows[5],40,"MUZZLE FLASH: %s",o->muzzle_flash?"ON":"OFF");
-    }else{
+    }else if(page==QOPTIONS_PAGE_GRAPHICS){
         snprintf(rows[0],40,"RESOLUTION: %s",qresolution_labels[o->resolution]);
         snprintf(rows[1],40,"TEXTURE FILTERING: %s",o->texture_filtering?"ON":"OFF");
         snprintf(rows[2],40,"REFRESH: %s",o->refresh_preset==0?"DEFAULT (120 HZ)":o->refresh_preset==1?"72 HZ":o->refresh_preset==2?"90 HZ":"120 HZ");
+        snprintf(rows[3],40,"SCENE DENSITY: %d%%",qoptions_scene_percent(o->scene_density));
+        snprintf(rows[4],40,"DEPTH CORRECTION: %s",o->depth_correction?"ON (EXPERIMENTAL)":"OFF");
+        snprintf(rows[5],40,"PERFORMANCE PANEL: %s",o->diagnostics?"ON":"OFF");
+    }else{
+        snprintf(rows[0],40,"TWO-HAND MACHINE GUN: %s",o->two_hand?"ON":"OFF");
+        snprintf(rows[1],40,"GRIP COVER: %s",o->cover_toggle?"TOGGLE":"HOLD");
+        snprintf(rows[2],40,"RECENTER / CALIBRATE HEIGHT");
+        snprintf(rows[3],40,"SCENE TRACE: %s",o->scene_trace?"CAPTURING":"OFF");
     }
     for(int i=0;i<count;i++){int y=94+i*36;bool chosen=i==qvr_menu_selected();if(chosen)highlight(y-4,28);text(24,y,rows[i],chosen?255:220,chosen?220:230,chosen?100:240);}
-    if(page==2){
-        char label[40];snprintf(label,40,"ACTIVE SIZE: %u X %u",active_width,active_height);text(24,220,label,181,207,220);
-        text(24,250,"SIZE / REFRESH: RESTART TO APPLY",255,202,110);
-        text(24,280,"HIGHER SIZE REQUIRES MORE GPU TIME",181,207,220);
+    if(page==QOPTIONS_PAGE_GRAPHICS){
+        const char *note="SIZE / REFRESH: RESTART TO APPLY";
+        if(qvr_menu_selected()==3)note="LOWER DENSITY: SOFTER WORLD IMAGE";
+        else if(qvr_menu_selected()==4)note="FIXES OVERLAP, NOT OBJECT SPAWNING";
+        else if(qvr_menu_selected()==5)note="GPU TIME ONLY WHEN SUPPORTED";
+        text(24,298,note,255,202,110);
+    }else if(page==QOPTIONS_PAGE_HANDLING){
+        text(24,250,"TWO HANDS: OFF-HAND GRIP SUPPORTS",181,207,220);
+        text(24,274,"WEAPON-HAND GRIP CONTROLS COVER",181,207,220);
+        text(24,298,"TRACE: LOCAL LOG, NOT A POP-IN FIX",255,202,110);
     }
     text(24,326,"LEFT UP/DOWN: SELECT SETTING",181,207,220);
     text(24,352,"LEFT LEFT/RIGHT: CHANGE PAGE",181,207,220);
@@ -101,8 +116,9 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
     if(!program)return;
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
     int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page<<8)|(options->texture_filtering?64:0)|(options->machine_gun?128:0)|(options->muzzle_flash?2048:0);
-    if(last_selected!=qvr_menu_selected()||last_haptics!=options->haptics||last_recoil!=options->recoil_strength||last_refresh!=options->refresh_preset||last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
-        last_selected=qvr_menu_selected();last_haptics=options->haptics;last_recoil=options->recoil_strength;last_refresh=options->refresh_preset;
+    int enhancements=options->scene_density|(options->depth_correction<<3)|(options->two_hand<<4)|(options->cover_toggle<<5)|(options->diagnostics<<6)|(options->scene_trace<<7);
+    if(last_enhancements!=enhancements||last_selected!=qvr_menu_selected()||last_haptics!=options->haptics||last_recoil!=options->recoil_strength||last_refresh!=options->refresh_preset||last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
+        last_enhancements=enhancements;last_selected=qvr_menu_selected();last_haptics=options->haptics;last_recoil=options->recoil_strength;last_refresh=options->refresh_preset;
         panel(options,page,boot_side,saved);last_resolution=options->resolution;last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
         last_y=options->gun_offset_y_mm;last_z=options->gun_offset_z_mm;last_player=options->player_side;last_boot=boot_side;
         GLint row_length;glGetIntegerv(GL_UNPACK_ROW_LENGTH,&row_length);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
@@ -120,4 +136,6 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
     glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,5*sizeof(float),0);glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,5*sizeof(float),(void*)(3*sizeof(float)));
     glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture(unit);
 }
-void qui_shutdown(void){glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}
+
+#include "quest_metrics.inc"
+void qui_shutdown(void){glDeleteTextures(1,&metrics_texture);metrics_texture=0;metrics_dirty=true;glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}

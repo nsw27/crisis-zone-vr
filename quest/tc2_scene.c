@@ -73,7 +73,10 @@ static int nearest_triangle(V3 origin,V3 direction,float *nearest){
 }
 
 static const tc2_built *frame;
+static uint64_t scene_serial;
+uint64_t qvr_scene_serial(void){return scene_serial;}
 static bool zone_select;
+bool qvr_scene_is_panel(void){return qvr_flat_view||zone_select||triangle_count==0;}
 static float effect_depth[TC2_RENDER_MAX];
 static int letterbox_top,letterbox_bottom=480;
 /* Retained through title screens with no polygons. */
@@ -133,8 +136,10 @@ bool qvr_flat_camera(float *cx,float *cy,float *focal){
     *cx=c.cx;*cy=c.cy;*focal=c.f;return !qvr_flat_view;
 }
 const tc2_built *qvr_current_frame(void){return frame;}
+#include "quest_scene_trace.inc"
 void qvr_scene_prepare(const tc2_built *b){
-    frame=b;triangle_count=0;zone_select=false;memset(effect_depth,0,sizeof effect_depth);
+    qvr_trace_capture(b);
+    scene_serial++;frame=b;triangle_count=0;zone_select=false;memset(effect_depth,0,sizeof effect_depth);
     letterbox_top=0;letterbox_bottom=480;if(!b)return;
     zone_select=csz_zone_select(&b->fs);
     if(zone_select)for(int i=0;i<b->fs.list.count;i++){

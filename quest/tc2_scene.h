@@ -18,3 +18,12 @@ bool qvr_aim(V3 origin,V3 direction,float *nx,float *ny,V3 *hit);
 
 /* World texture filtering; HUD/text and stencil masks retain point sampling. */
 void tc2_gl_set_filter(int enabled);
+
+/* Changes on every scene publication, including a reused frame-buffer pointer. */
+uint64_t qvr_scene_serial(void);
+bool qvr_scene_is_panel(void);
+
+/* Bounded local capture; flush only when paused/shutting down. */
+void qvr_trace_set(bool enabled);
+bool qvr_trace_active(void);
+void qvr_trace_flush(void);

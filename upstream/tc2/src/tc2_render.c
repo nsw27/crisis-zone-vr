@@ -21,6 +21,7 @@
 #include <float.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "tc2_c435.h"
 #include "tc2_frame.h"
 #include "tc2_build.h"
@@ -96,10 +97,10 @@ static tc2_built *BLD;                                 /* the frame being built 
 static int32_t s24(uint32_t v) { return (v & 0x800000) ? (int32_t)(v | 0xFF000000u) : (int32_t)(v & 0xFFFFFF); }
 static int32_t s10(uint32_t v) { return (v & 0x200) ? (int32_t)((0x3FF - (v & 0x3FF)) | 0xFFFFFE00u) : (int32_t)(v & 0x1FF); }
 
-static void transform(const tc2_render_entry *e, int32_t xi, int32_t yi, int32_t zi, float *x, float *y, float *z)
+/* Entry-invariant matrix preparation belongs outside the vertex loop. Preserve
+ * the original fixed-point shift and floating-point operation order. */
+static void transform(const tc2_render_entry *e, const int16_t m[9], int32_t xi, int32_t yi, int32_t zi, float *x, float *y, float *z)
 {
-    int16_t m[9]; memcpy(m, e->m, sizeof m);
-    if (e->transpose) { int16_t t[9]; memcpy(t, m, sizeof t); for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) m[r * 3 + c] = t[c * 3 + r]; }
     *x = ((float)((m[0] * (int64_t)xi + m[1] * (int64_t)yi + m[2] * (int64_t)zi) >> 14) * e->scaling + e->v[0]) / 16384.f;
     *y = ((float)((m[3] * (int64_t)xi + m[4] * (int64_t)yi + m[5] * (int64_t)zi) >> 14) * e->scaling + e->v[1]) / 16384.f;
     *z = ((float)((m[6] * (int64_t)xi + m[7] * (int64_t)yi + m[8] * (int64_t)zi) >> 14) * e->scaling + e->v[2]) / 16384.f;
@@ -192,6 +193,9 @@ static void render_model(const tc2_render_entry *e)
     if (adr >= ptrom_limit || adr2 >= ptrom_limit) return;
     const uint32_t *data = &ptrom[adr], *data2 = &ptrom[adr2];
     uint32_t offs = 0;
+    int16_t matrix[9];
+    for(int r=0;r<3;r++)for(int c=0;c<3;c++)matrix[r*3+c]=e->m[e->transpose?c*3+r:r*3+c];
+    bool light_ready=false;float light_x=0,light_y=0,light_z=0;
     const float fb_ = e->model_blend_factor / 16384.f, fa_ = 1.f - fb_;
     while (adr + offs < ptrom_limit && adr2 + offs < ptrom_limit && GNPOLY < MAX_POLYS) {
         pvert pv[16];
@@ -206,10 +210,10 @@ static void render_model(const tc2_render_entry *e)
         for (int i = 0; i < ne && i < 16; i++) {
             const uint32_t v1 = data[offs], v2 = data[offs + 1], v3 = data[offs + 2];
             float x, y, z;
-            transform(e, s24(v1), s24(v2), s24(v3), &x, &y, &z);
+            transform(e, matrix, s24(v1), s24(v2), s24(v3), &x, &y, &z);
             if (blend) {
                 float x2, y2, z2;
-                transform(e, s24(data2[offs]), s24(data2[offs + 1]), s24(data2[offs + 2]), &x2, &y2, &z2);
+                transform(e, matrix, s24(data2[offs]), s24(data2[offs + 1]), s24(data2[offs + 2]), &x2, &y2, &z2);
                 x = x * fa_ + x2 * fb_; y = y * fa_ + y2 * fb_; z = z * fa_ + z2 * fb_;
             }
             offs += 3;
@@ -227,12 +231,15 @@ static void render_model(const tc2_render_entry *e)
                     nx = (int32_t)(nx * fa_ + s10((n2 >> 20) & 0x3FF) * fb_); ny = (int32_t)(ny * fa_ + s10((n2 >> 10) & 0x3FF) * fb_); nz = (int32_t)(nz * fa_ + s10(n2 & 0x3FF) * fb_);
                 }
                 extptr++;
-                float nrx, nry, nrz, cx, cy, cz;
+                float nrx, nry, nrz;
                 matrot(e, nx, ny, nz, &nrx, &nry, &nrz);
                 float len = sqrtf(nrx * nrx + nry * nry + nrz * nrz); if (len != 0) { nrx /= len; nry /= len; nrz /= len; }
-                matrot(e, e->light_vector[0], e->light_vector[1], e->light_vector[2], &cx, &cy, &cz);
-                len = sqrtf(cx * cx + cy * cy + cz * cz); if (len != 0) { cx /= len; cy /= len; cz /= len; }
-                float lsi = nrx * cx + nry * cy + nrz * cz; if (lsi < 0) lsi = 0;
+                if(!light_ready){
+                    matrot(e, e->light_vector[0], e->light_vector[1], e->light_vector[2], &light_x, &light_y, &light_z);
+                    len = sqrtf(light_x * light_x + light_y * light_y + light_z * light_z);
+                    if(len!=0){light_x/=len;light_y/=len;light_z/=len;}light_ready=true;
+                }
+                float lsi = nrx * light_x + nry * light_y + nrz * light_z; if (lsi < 0) lsi = 0;
                 float s = e->light_ambient + e->light_power * lsi; if (s < 0) s = 0; if (s > 64) s = 64;
                 pv[i].p[3] = s;
             }

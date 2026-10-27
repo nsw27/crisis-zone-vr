@@ -3,6 +3,11 @@
 #include "handedness_fixture.c"
 #undef main
 static QGunKind test_model;
+int tc2_depth_mode;
+void qvr_trace_set(bool on){(void)on;}
+void qvr_trace_flush(void){}
+static int test_density=100;
+void qtc2_set_scene_percent(int p){test_density=p;}
 bool qgun_available(QGunKind k){return k==QGUN_PISTOL||k==QGUN_MACHINE_GUN;}
 void qgun_select(QGunKind k){test_model=k;}
 int main(void){
@@ -108,13 +113,13 @@ int main(void){
     connected[0]=connected[1]=tracked[0]=tracked[1]=true;
     trigger_active[0]=trigger_active[1]=true;stick_active=distance_active=true;
     stick_x=stick_y=distance_x=distance_y=0;reset_input_edges();tick();
-    for(int page=0;page<3;page++){
+    for(int page=0;page<QOPTIONS_PAGE_COUNT;page++){
         assert(options_page==page);
         for(int row=0;row<qoptions_row_count(page);row++){
             assert(menu_selected==row);distance_y=-1;tick();tick();
             assert(menu_selected==(row+1)%qoptions_row_count(page));distance_y=0;tick();
         }
-        distance_x=1;tick();assert(options_page==(page+1)%3);tick();assert(options_page==(page+1)%3);
+        distance_x=1;tick();assert(options_page==(page+1)%QOPTIONS_PAGE_COUNT);tick();assert(options_page==(page+1)%QOPTIONS_PAGE_COUNT);
         distance_x=0;tick();
     }
     menu_selected=0;options.gun_pitch=0;reset_pitch_input();tick();stick_x=1;tick();assert(options.gun_pitch==1);
@@ -129,6 +134,12 @@ int main(void){
     QOptions roundtrip;qoptions_load(options_path,&roundtrip);assert(!roundtrip.muzzle_flash&&roundtrip.haptics==75&&roundtrip.machine_gun);
     options_page=2;menu_selected=2;options.refresh_preset=0;stick_x=1;tick();assert(options.refresh_preset==1);
     stick_x=0;tick();assert(qoptions_refresh_hz(1)==72&&qoptions_refresh_hz(2)==90&&qoptions_refresh_hz(3)==120);
+    menu_selected=3;stick_x=1;tick();assert(options.scene_density==1&&test_density==85);stick_x=0;tick();
+    menu_selected=4;stick_x=1;tick();assert(options.depth_correction&&tc2_depth_mode==1);stick_x=0;tick();
+    options_page=QOPTIONS_PAGE_HANDLING;menu_selected=0;stick_x=1;tick();assert(options.two_hand);stick_x=0;tick();
+    menu_selected=1;stick_x=1;tick();assert(options.cover_toggle);stick_x=0;tick();
+    qoptions_load(options_path,&roundtrip);assert(roundtrip.scene_density==1&&roundtrip.depth_correction&&roundtrip.two_hand&&roundtrip.cover_toggle);
+    options.two_hand=options.cover_toggle=false;
     /* Illegal inputs cannot generate undefined float/integer conversions. */
     nx=NAN;ny=INFINITY;aim_valid=true;ss22_input_update();assert(g_ss22_gun_off);
     nx=-1000;ny=1000;ss22_input_update();assert(g_ss22_gun_x==64&&g_ss22_gun_y==255&&g_ss22_gun_off);
@@ -137,6 +148,22 @@ int main(void){
     paused=false;options.physical_crouch=false;reset_input_edges();triggers[0]=triggers[1]=0;tick();
     triggers[weapon_hand()]=1;tick();assert(trigger==1);triggers[weapon_hand()]=NAN;tick();assert(trigger==0);
     triggers[weapon_hand()]=1;tick();assert(trigger==0);triggers[weapon_hand()]=0;tick();triggers[weapon_hand()]=1;tick();assert(trigger==1);
+    /* Real host path: off-hand support does not also operate cover. */
+    focused=running=origin_set=true;paused=false;options.physical_crouch=false;
+    options.two_hand=options.machine_gun=true;options.cover_toggle=false;
+    options.gun_pitch=options.gun_offset_y_mm=options.gun_offset_z_mm=0;
+    origin=v3(0,1.7f,0);origin_rotation=controller_rotation=(Q4){0,0,0,1};
+    connected[0]=connected[1]=tracked[0]=tracked[1]=true;select_weapon_hand(RIGHT_HAND);
+    controller_positions[LEFT_HAND]=(XrVector3f){.25f,1.36f,-.8f};
+    triggers[0]=triggers[1]=grips[0]=grips[1]=0;reset_input_edges();tick();
+    grips[LEFT_HAND]=1;tick();assert(support_grip.held&&pedal==0);
+    grips[RIGHT_HAND]=1;tick();assert(support_grip.held&&pedal==1);
+    grips[LEFT_HAND]=0;tick();assert(!support_grip.held&&pedal==1);
+    options.cover_toggle=true;grips[RIGHT_HAND]=0;tick();grips[RIGHT_HAND]=1;tick();assert(pedal==1);
+    grips[RIGHT_HAND]=0;tick();assert(pedal==1);grips[RIGHT_HAND]=1;tick();assert(pedal==0);
+    grips[RIGHT_HAND]=0;tick();grips[RIGHT_HAND]=1;tick();assert(pedal==1);
+    tracked[RIGHT_HAND]=false;tick();assert(pedal==0);tracked[RIGHT_HAND]=true;tick();assert(pedal==0);
+    options.two_hand=options.cover_toggle=false;
     /* Pure burst clock: no repeats without permissions, immediate first shot. */
     QFeedback f={0};assert(qfeedback_tick(&f,false,1)==0);assert(qfeedback_tick(&f,true,2)==1);
     assert(qfeedback_tick(&f,true,99)==0);assert(qfeedback_tick(&f,true,102)==1);

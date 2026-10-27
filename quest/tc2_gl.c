@@ -30,6 +30,8 @@
 #include "tc2_scene.h"
 #include <math.h>
 #include "tc2_build.h"
+#include "quest_render_control.h"
+#include "quest_gpu_timer.h"
 
 /* the ROM data, owned by src/tc2_render.c */
 void tc2_render_assets(const uint8_t **texrom, const uint32_t **tm_decoded, const uint8_t **tattr);
@@ -150,9 +152,10 @@ static const char *fs_text =
 
 static const char *fs_gamma =
     "#version 300 es\nprecision highp float;precision highp int;out vec4 frag;\n"
-    "uniform highp sampler2D t_src, t_lut;\n"
+    "uniform highp sampler2D t_src, t_lut;uniform vec2 u_output_size;\n"
     "void main() {\n"
-    "  vec3 c = texelFetch(t_src, ivec2(gl_FragCoord.xy), 0).rgb;\n"
+    "  ivec2 size=textureSize(t_src,0);\n"
+    "  vec3 c=all(equal(size,ivec2(u_output_size)))?texelFetch(t_src,ivec2(gl_FragCoord.xy),0).rgb:texture(t_src,gl_FragCoord.xy/u_output_size).rgb;\n"
     "  ivec3 i = ivec3(c * 255.0 + 0.5);\n"
     "  frag = vec4(texelFetch(t_lut, ivec2(i.r, 0), 0).r, texelFetch(t_lut, ivec2(i.g, 0), 0).g, texelFetch(t_lut, ivec2(i.b, 0), 0).b, 1.0);\n"
     "}\n";
@@ -166,12 +169,36 @@ static int capture_w,capture_h;
 static unsigned output_framebuffer;
 static float vr_view[16],vr_projection[16];
 static const tc2_built *uploaded;
+static uint64_t uploaded_serial;
+static int uploaded_flat;
+static float uploaded_units;
+static int scene_percent=100, output_width=640, output_height=480;
+static QRenderStats render_stats;
+static QGpuTimer gpu_timer={.active=-1};
+static bool profiling;
+void qtc2_set_profiling(int enabled){profiling=enabled!=0;qgpu_timer_enable(&gpu_timer,profiling);}
+void qtc2_profile_close(void){qgpu_timer_close(&gpu_timer);}
+void qtc2_set_scene_percent(int percent){scene_percent=percent<50?50:percent>100?100:percent;}
+void qtc2_render_stats(QRenderStats *out){
+    render_stats.gpu_ms=gpu_timer.milliseconds;render_stats.gpu_samples=gpu_timer.samples;render_stats.gpu_supported=gpu_timer.available;
+    if(out)*out=render_stats;
+}
+static bool palette_valid,stencil_valid,text_valid,band_valid,gamma_valid,has_text;
+static uint32_t last_palette[32768];
+static uint16_t last_stencil[512*256],last_mix[640*480],last_band[480];
+static uint8_t last_gamma[3][256];
+static uint32_t *indices;
+static size_t icap;
+static int index_count;
+static GLuint index_buffer;
+static GLint camera_locations[2][4];
 static float uploaded_world_scale,uploaded_view_distance;
 static int vertex_count;
 static GLuint prog_poly, prog_text, prog_gamma, vbo, quad_vbo, t_out, fbo_out, t_lut;
-static GLint ug[2];
+static GLint ug[3];
 static GLuint t_band, t_rom, t_map, t_pal, t_sten, t_mix, t_col, t_prio, fbo_col, fbo_prio;
 static GLint up[20], ut[16];
+static int near_width,near_height;
 static GLuint t_near, t_nearz, fbo_near;          /* the exact-depth pre-pass target: nearest object / band (colour), its 1/z (depth) */
 enum { A_POS, A_UVS, A_PAR, A_CLIP, A_EXT };
 #define VFLOATS 17
@@ -207,6 +234,7 @@ static GLuint texture(GLint ifmt, int w, int h, GLenum fmt, const void *data)
     glTexImage2D(GL_TEXTURE_2D, 0, ifmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
     return t;
 }
+int tc2_depth_on(void);
 static int targets(void)
 {
     fbw=requested_w;fbh=requested_h;
@@ -222,6 +250,7 @@ static int targets(void)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tt[i], 0);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { fprintf(stderr, "[GPU] render target %dx%d incomplete\n", fbw, fbh); glBindFramebuffer(GL_FRAMEBUFFER, 0); return 0; }
     }
+    if (tc2_depth_on()) {
     if (!t_near) { glGenTextures(1, &t_near); glGenTextures(1, &t_nearz); glGenFramebuffers(1, &fbo_near); }
     glBindTexture(GL_TEXTURE_2D, t_near);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -230,10 +259,12 @@ static int targets(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, 0x884C /* GL_TEXTURE_COMPARE_MODE */, 0 /* GL_NONE: sample the value */);
     glTexImage2D(GL_TEXTURE_2D, 0, 0x8CAC /* GL_DEPTH_COMPONENT32F */, fbw, fbh, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    near_width=fbw;near_height=fbh;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_near);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t_near, 0);
     glFramebufferTexture2D(GL_FRAMEBUFFER, 0x8D00 /* GL_DEPTH_ATTACHMENT */, GL_TEXTURE_2D, t_nearz, 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { fprintf(stderr, "[GPU] exact-depth target incomplete: depth off\n"); fbo_near = 0; }
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return 1;
 }
@@ -276,6 +307,12 @@ int tc2_gl_init(void)
     glGenVertexArrays(1,&vao);glBindVertexArray(vao);
     if (!(prog_poly = program(vs_poly, fs_poly)) || !(prog_text = program(vs_text, fs_text)) || !(prog_gamma = program(vs_screen, fs_gamma))) return 0;
     ug[0] = glGetUniformLocation(prog_gamma, "t_src"); ug[1] = glGetUniformLocation(prog_gamma, "t_lut");
+    ug[2]=glGetUniformLocation(prog_gamma,"u_output_size");
+    const char *cam_names[]={"u_view","u_proj","u_flat","u_cam"};
+    const GLuint cam_programs[]={prog_poly,prog_text};
+    for(int i=0;i<2;i++)for(int j=0;j<4;j++)camera_locations[i][j]=glGetUniformLocation(cam_programs[i],cam_names[j]);
+    palette_valid=stencil_valid=text_valid=band_valid=gamma_valid=false;
+    uploaded=NULL;uploaded_serial=0;render_stats=(QRenderStats){0};
     static const char *pn[] = { "t_rom", "t_map", "t_pal", "t_sten", "u_scale", "u_h", "u_prio", "u_pfade", "u_ff", "u_alpha", "u_alpha_pen", "u_pcol", "u_fcol", "u_ex",
                                 "t_near", "t_nearz", "u_near", "u_depth", "u_keep", "u_filter" };
     for (int i = 0; i < 20; i++) up[i] = glGetUniformLocation(prog_poly, pn[i]);
@@ -298,7 +335,7 @@ int tc2_gl_init(void)
     t_mix = texture(GL_RG8, 640, 480, GL_RG, NULL);
     t_band = texture(GL_RG8, 480, 1, GL_RG, NULL);
     t_lut = texture(GL_RGB8, 256, 1, GL_RGB, NULL);
-    glGenBuffers(1, &vbo); glGenBuffers(1, &quad_vbo);
+    glGenBuffers(1, &vbo); glGenBuffers(1, &quad_vbo);glGenBuffers(1,&index_buffer);
     static const float quad[] = { -1, -1, 0, 1,  1, -1, 0, 1,  1, 1, 0, 1,  -1, -1, 0, 1,  1, 1, 0, 1,  -1, 1, 0, 1 };
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo); glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -315,53 +352,89 @@ int tc2_gl_init(void)
 
 /* the frame's polygons as triangles, in draw order: per vertex its clip position (x*w, y*w, 0, w with w = z, so GL interpolates u, v and
  * the shade perspective-correct exactly as the hardware's u/z, v/z, i/z), u v shade, and the polygon's parameters and viewport clip */
+/* Indexed fans retain polygon/triangle order and all per-polygon attributes.
+ * Reference mode expands the same vertices for pixel-by-pixel regression tests. */
 static int fill_vertices(const tc2_built *b)
 {
-    size_t need = 0;
-    for (int i = 0; i < b->npoly; i++) need += (size_t)(b->polys[i].n - 2) * 3;
+    size_t need=0,ni=0;
+    for(int i=0;i<b->npoly;i++){
+        int n=b->polys[i].n;if(n<3||n>8)continue;
+        need+=(size_t)n;ni+=(size_t)(n-2)*3;
+    }
+#ifdef TCVR_RENDER_REFERENCE
+    need=ni;
+#endif
+    index_count=0;
     if(!need)return 0;
-    if (need * VFLOATS > vcap) { vcap = need * VFLOATS * 2 + 4096; verts = realloc(verts, vcap * sizeof *verts); }
-    float *o = verts;
-    for (int i = 0; i < b->npoly; i++) {
-        const tc2_poly *p = &b->polys[b->order[i]];
+    if(need*VFLOATS>vcap){
+        size_t cap=need*VFLOATS+4096;float *next=realloc(verts,cap*sizeof *verts);
+        if(!next){fprintf(stderr,"[GPU] vertex allocation failed\n");return 0;}
+        verts=next;vcap=cap;
+    }
+    if(ni>icap){
+        size_t cap=ni+4096;uint32_t *next=realloc(indices,cap*sizeof *indices);
+        if(!next){fprintf(stderr,"[GPU] index allocation failed\n");return 0;}
+        indices=next;icap=cap;
+    }
+    int nv=0;
+    for(int i=0;i<b->npoly;i++){
+        if(b->order[i]>=(unsigned)b->npoly)continue;
+        const tc2_poly *p=&b->polys[b->order[i]];if(p->n<3||p->n>8)continue;
         QTC2Layer layer=qvr_tc2_layer(b,p);
         if(!qvr_flat_view&&layer==QTC2_LETTERBOX)continue;
-        const int cl = (320 - p->vp_size_x) + p->vp_offset_x, cr = (320 + p->vp_size_x) + p->vp_offset_x;
-        const int ct = (240 - p->vp_size_y) - p->vp_offset_y, cb = (240 + p->vp_size_y) - p->vp_offset_y;
-        /* widescreen (Hor+): a viewport that fills the 4:3 screen fills the wide one -- same camera, more world at the sides */
-        const int full = ex && cl <= 0 && cr >= 640;
-        const int ccl = full ? -ex : cl, ccr = full ? 640 + ex : cr;
-        const float flags = (float)(p->stencil | p->blend << 1 | p->alpha_enabled << 2 | (p->prioverchar & 7) << 3);
-        for (int k = 1; k + 1 < p->n; k++) {
-            const int tri[3] = { 0, k, k + 1 };
-            for (int j = 0; j < 3; j++) {
-                const tc2_pvert *v = &p->pv[tri[j]];
-                const float ooz = v->p[0] != 0 ? v->p[0] : 1e-30f, w = 1.0f / ooz;
-                const float sx = v->x + (float)cl, sy = v->y + (float)ct;
-                if(qvr_flat_view){*o++=(sx/320.f-1)*w;*o++=(sy/240.f-1)*w;*o++=0;*o++=w;}
-                else {V3 pos=qvr_tc2_vertex(b,p,tri[j]);*o++=pos.x;*o++=pos.y;*o++=pos.z;*o++=1;}
-                *o++ = v->p[1] * w; *o++ = v->p[2] * w; *o++ = v->p[3] * w;
-                *o++ = (float)p->color_base; *o++ = (float)p->cmode; *o++ = (float)p->tbase; *o++ = flags;
-                *o++=sx;*o++=sy;*o++=!qvr_flat_view&&layer!=QTC2_WORLD;*o++=layer==QTC2_WORLD;
-                *o++ = (float)((p->entry & 0x3FFF) + 1); *o++ = (float)(p->zkey >> 21);
-            }
+        const int cl=320-p->vp_size_x+p->vp_offset_x,ct=240-p->vp_size_y-p->vp_offset_y;
+        float flags=(float)(p->stencil|p->blend<<1|p->alpha_enabled<<2|(p->prioverchar&7)<<3);
+        float local[8][VFLOATS];
+        for(int j=0;j<p->n;j++){
+            const tc2_pvert *v=&p->pv[j];float *o=local[j];
+            float ooz=v->p[0]!=0?v->p[0]:1e-30f,w=1.f/ooz;
+            float sx=v->x+(float)cl,sy=v->y+(float)ct;
+            if(qvr_flat_view){*o++=(sx/320.f-1)*w;*o++=(sy/240.f-1)*w;*o++=0;*o++=w;}
+            else{V3 pos=qvr_tc2_vertex(b,p,j);*o++=pos.x;*o++=pos.y;*o++=pos.z;*o++=1;}
+            *o++=v->p[1]*w;*o++=v->p[2]*w;*o++=v->p[3]*w;
+            *o++=(float)p->color_base;*o++=(float)p->cmode;*o++=(float)p->tbase;*o++=flags;
+            *o++=sx;*o++=sy;*o++=!qvr_flat_view&&layer!=QTC2_WORLD;*o++=layer==QTC2_WORLD;
+            *o++=(float)((p->entry&0x3FFF)+1);*o++=(float)(p->zkey>>21);
         }
+#ifdef TCVR_RENDER_REFERENCE
+        for(int k=1;k+1<p->n;k++){
+            const int tri[]={0,k,k+1};
+            for(int j=0;j<3;j++){memcpy(verts+(size_t)nv*VFLOATS,local[tri[j]],sizeof local[0]);nv++;}
+        }
+#else
+        for(int k=1;k+1<p->n;k++){
+            indices[index_count++]=(uint32_t)nv;
+            indices[index_count++]=(uint32_t)(nv+k);
+            indices[index_count++]=(uint32_t)(nv+k+1);
+        }
+        memcpy(verts+(size_t)nv*VFLOATS,local,(size_t)p->n*sizeof local[0]);nv+=p->n;
+#endif
     }
-    return (int)((o-verts)/VFLOATS);
+    return nv;
+}
+static void draw_polygons(void){
+#ifdef TCVR_RENDER_REFERENCE
+    glDrawArrays(GL_TRIANGLES,0,vertex_count);
+#else
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,index_buffer);
+    glDrawElements(GL_TRIANGLES,index_count,GL_UNSIGNED_INT,0);
+#endif
+    render_stats.draw_calls++;
 }
 int tc2_depth_on(void); float tc2_depth_keep(void);   /* src/tc2_render.c: the exact-depth setting */
 static void bind_tex(int unit, GLuint t) { glActiveTexture(GL_TEXTURE0 + unit); glBindTexture(GL_TEXTURE_2D, t); }
 static void camera_uniforms(GLuint p){
-    glUniformMatrix4fv(glGetUniformLocation(p,"u_view"),1,GL_FALSE,vr_view);
-    glUniformMatrix4fv(glGetUniformLocation(p,"u_proj"),1,GL_FALSE,vr_projection);
-    glUniform1i(glGetUniformLocation(p,"u_flat"),qvr_flat_view);
-    float cx,cy,f; qvr_flat_camera(&cx,&cy,&f);glUniform3f(glGetUniformLocation(p,"u_cam"),cx,cy,f);
+    const GLint *u=camera_locations[p==prog_text?1:0];
+    glUniformMatrix4fv(u[0],1,GL_FALSE,vr_view);
+    glUniformMatrix4fv(u[1],1,GL_FALSE,vr_projection);
+    glUniform1i(u[2],qvr_flat_view);
+    float cx,cy,f; qvr_flat_camera(&cx,&cy,&f);glUniform3f(u[3],cx,cy,f);
 }
 static void draw_quad(void)
 {
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
     glEnableVertexAttribArray(A_POS); glVertexAttribPointer(A_POS, 4, GL_FLOAT, GL_FALSE, 0, NULL);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDrawArrays(GL_TRIANGLES, 0, 6);render_stats.draw_calls++;
     glDisableVertexAttribArray(A_POS);
 }
 static void text_pass(const tc2_built *b, int pass)
@@ -386,36 +459,75 @@ unsigned tc2_gl_draw(const tc2_built *b)
     GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
     glBindVertexArray(vao);
     const tc2_fx *f = &b->fx;
-    bool new_frame=uploaded!=b;
+    uint64_t serial=qvr_scene_serial();
+    bool new_frame=uploaded!=b||uploaded_serial!=serial;
     if(new_frame){
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    static uint32_t palette[32768];
-    for(int i=0;i<32768;i++){uint32_t c=b->fs.pens[i];palette[i]=0xff000000u|((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
-    bind_tex(0, t_pal); glTexSubImage2D(GL_TEXTURE_2D,0,0,0,256,128,GL_RGBA,GL_UNSIGNED_BYTE,palette);
-    bind_tex(0, t_sten); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 512, 256, GL_RG, GL_UNSIGNED_BYTE, b->fs.sram);
-    if (f->layers & 4) {
-        bind_tex(0, t_mix); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_RG, GL_UNSIGNED_BYTE, b->mix);
-        bind_tex(0, t_band); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 480, 1, GL_RG, GL_UNSIGNED_BYTE, b->band);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+        if(!palette_valid||memcmp(last_palette,b->fs.pens,sizeof last_palette)){
+            static uint32_t palette[32768];
+            for(int i=0;i<32768;i++){uint32_t c=b->fs.pens[i];palette[i]=0xff000000u|((c&255)<<16)|(c&0xff00)|((c>>16)&255);}
+            bind_tex(0,t_pal);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,256,128,GL_RGBA,GL_UNSIGNED_BYTE,palette);
+            memcpy(last_palette,b->fs.pens,sizeof last_palette);palette_valid=true;
+            render_stats.texture_uploads++;render_stats.texture_bytes+=sizeof palette;
+        }
+        if(!stencil_valid||memcmp(last_stencil,b->fs.sram,sizeof last_stencil)){
+            bind_tex(0,t_sten);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,512,256,GL_RG,GL_UNSIGNED_BYTE,b->fs.sram);
+            memcpy(last_stencil,b->fs.sram,sizeof last_stencil);stencil_valid=true;
+            render_stats.texture_uploads++;render_stats.texture_bytes+=sizeof last_stencil;
+        }
+        has_text=false;
+        if(f->layers&4){
+            for(int i=0;i<640*480;i++)if(b->mix[i]&0x8000){has_text=true;break;}
+            if(has_text&&(!text_valid||memcmp(last_mix,b->mix,sizeof last_mix))){
+                bind_tex(0,t_mix);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,640,480,GL_RG,GL_UNSIGNED_BYTE,b->mix);
+                memcpy(last_mix,b->mix,sizeof last_mix);text_valid=true;
+                render_stats.texture_uploads++;render_stats.texture_bytes+=sizeof last_mix;
+            }
+            if(has_text&&(!band_valid||memcmp(last_band,b->band,sizeof last_band))){
+                bind_tex(0,t_band);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,480,1,GL_RG,GL_UNSIGNED_BYTE,b->band);
+                memcpy(last_band,b->band,sizeof last_band);band_valid=true;
+                render_stats.texture_uploads++;render_stats.texture_bytes+=sizeof last_band;
+            }
+        }
+        if(!gamma_valid||memcmp(last_gamma,b->fs.gamma,sizeof last_gamma)){
+            uint8_t lut[256*3];
+            for(int i=0;i<256;i++){lut[3*i]=b->fs.gamma[0][i];lut[3*i+1]=b->fs.gamma[1][i];lut[3*i+2]=b->fs.gamma[2][i];}
+            bind_tex(0,t_lut);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,256,1,GL_RGB,GL_UNSIGNED_BYTE,lut);
+            memcpy(last_gamma,b->fs.gamma,sizeof last_gamma);gamma_valid=true;
+            render_stats.texture_uploads++;render_stats.texture_bytes+=sizeof lut;
+        }
     }
+    /* Cache independent of eye pose, but invalidate on scene publication,
+     * scale/distance edits, flat-view changes and reconstruction-unit changes. */
+    if(new_frame||uploaded_world_scale!=qvr_world_scale||uploaded_view_distance!=qvr_view_distance||
+       uploaded_flat!=qvr_flat_view||uploaded_units!=qvr_units_per_meter){
+        uploaded=b;uploaded_serial=serial;uploaded_world_scale=qvr_world_scale;uploaded_view_distance=qvr_view_distance;
+        uploaded_flat=qvr_flat_view;uploaded_units=qvr_units_per_meter;
+        vertex_count=fill_vertices(b);
+        glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)((size_t)vertex_count*VFLOATS*sizeof(float)),verts,GL_STREAM_DRAW);
+        render_stats.geometry_uploads++;render_stats.geometry_bytes+=(uint64_t)vertex_count*VFLOATS*sizeof(float);
+#ifndef TCVR_RENDER_REFERENCE
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,index_buffer);glBufferData(GL_ELEMENT_ARRAY_BUFFER,(GLsizeiptr)((size_t)index_count*sizeof *indices),indices,GL_STREAM_DRAW);
+        render_stats.geometry_bytes+=(uint64_t)index_count*sizeof *indices;
+#endif
+        render_stats.vertices=vertex_count;render_stats.triangles=
+#ifdef TCVR_RENDER_REFERENCE
+            vertex_count/3;
+#else
+            index_count/3;
+#endif
     }
-    /* A paused frame retains its pointer, but the options slider still changes
-     * its geometry. Refresh vertices once; the second eye reuses the upload. */
-    if(new_frame||uploaded_world_scale!=qvr_world_scale||uploaded_view_distance!=qvr_view_distance){
-    uploaded=b;uploaded_world_scale=qvr_world_scale;uploaded_view_distance=qvr_view_distance;
-    vertex_count=fill_vertices(b);
-    glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,(GLsizeiptr)(vertex_count*VFLOATS*sizeof(float)),verts,GL_STREAM_DRAW);
-    }
+    if(tc2_depth_on()&&(!fbo_near||near_width!=fbw||near_height!=fbh))targets();
     glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, fbw, fbh);
     /* 1. the background */
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
     glClearColor((f->bg >> 16 & 0xFF) / 255.0f, (f->bg >> 8 & 0xFF) / 255.0f, (f->bg & 0xFF) / 255.0f, 1);
     glClear(GL_COLOR_BUFFER_BIT);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_prio);
-    glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);
+    if(has_text){glBindFramebuffer(GL_FRAMEBUFFER,fbo_prio);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}
     glEnable(GL_BLEND);
     /* 2. the text layer, under everything (and 'text here' into the priority target) */
-    if (f->layers & 4) {
+    if (has_text) {
         glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_ONE, GL_ZERO);
         text_pass(b, 0);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
@@ -450,7 +562,7 @@ unsigned tc2_gl_draw(const tc2_built *b)
             glClearColor(0, 0, 0, 0); glClearDepthf(0.0); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             glDisable(GL_BLEND); glEnable(GL_DEPTH_TEST); glDepthFunc(GL_GREATER); glDepthMask(GL_TRUE);
             glUniform1i(up[6], 0); glUniform1i(up[16], 1);
-            glDrawArrays(GL_TRIANGLES, 0, nv);
+            draw_polygons();
             glDisable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glClearDepthf(1.0); glEnable(GL_BLEND);
             glUniform1i(up[16], 0); glUniform1i(up[17], 1);
             bind_tex(4, t_near); bind_tex(5, t_nearz);
@@ -458,33 +570,31 @@ unsigned tc2_gl_draw(const tc2_built *b)
         glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
         glUniform1i(up[6], 0);
         glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDrawArrays(GL_TRIANGLES, 0, nv);
-        if (f->layers & 4) {
+        draw_polygons();
+        if (has_text) {
             glBindFramebuffer(GL_FRAMEBUFFER, fbo_prio);
             glUniform1i(up[6], 1);
             glBlendEquationSeparate(GL_MAX, GL_FUNC_ADD); glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ZERO);
-            glDrawArrays(GL_TRIANGLES, 0, nv);
+            draw_polygons();
             glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         }
         for (int a = A_POS; a <= A_EXT; a++) glDisableVertexAttribArray((GLuint)a);
         bind_tex(4, 0); bind_tex(5, 0); glActiveTexture(GL_TEXTURE0);
     }
     /* 5. the text the polygons let through again */
-    if (f->layers & 4) {
+    if (has_text) {
         glBindFramebuffer(GL_FRAMEBUFFER, fbo_col);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         text_pass(b, 2);
     }
     /* 6. the C404's GAMMA (the game's own R / G / B curves), into the picture the window shows */
     {
-        uint8_t lut[256 * 3];
-        for (int i = 0; i < 256; i++) { lut[3 * i] = b->fs.gamma[0][i]; lut[3 * i + 1] = b->fs.gamma[1][i]; lut[3 * i + 2] = b->fs.gamma[2][i]; }
-        bind_tex(0, t_lut); glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGB, GL_UNSIGNED_BYTE, lut);
         glDisable(GL_BLEND);
         glBindFramebuffer(GL_FRAMEBUFFER, output_framebuffer);
-        glUseProgram(prog_gamma); glUniform1i(ug[0], 0); glUniform1i(ug[1], 1);
-        bind_tex(0, t_col); bind_tex(1, t_lut);
-        draw_quad();
+        glViewport(0,0,output_width,output_height);
+        glUseProgram(prog_gamma); glUniform1i(ug[0], 0); glUniform1i(ug[1], 1);glUniform2f(ug[2],(float)output_width,(float)output_height);
+        bind_tex(0,t_col);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        bind_tex(1,t_lut);draw_quad();
     }
     /* back to the state the window and the menu expect */
     glDisable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -516,7 +626,7 @@ static uint8_t *readback_pixels(void) {
     }
     glBindFramebuffer(GL_FRAMEBUFFER,fbo_out);glViewport(0,0,fbw,fbh);glBindVertexArray(vao);
     glDisable(GL_BLEND);glDisable(GL_DEPTH_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);
-    glUseProgram(prog_gamma);glUniform1i(ug[0],0);glUniform1i(ug[1],1);bind_tex(0,t_col);bind_tex(1,t_lut);draw_quad();
+    glUseProgram(prog_gamma);glUniform1i(ug[0],0);glUniform1i(ug[1],1);glUniform2f(ug[2],(float)fbw,(float)fbh);bind_tex(0,t_col);bind_tex(1,t_lut);draw_quad();
     glPixelStorei(GL_PACK_ALIGNMENT,1);glReadPixels(0,0,fbw,fbh,GL_RGBA,GL_UNSIGNED_BYTE,pixels);glPixelStorei(GL_PACK_ALIGNMENT,pack);
     glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)previous);glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
     glUseProgram(0);glBindBuffer(GL_ARRAY_BUFFER,0);bind_tex(1,0);bind_tex(0,0);
@@ -542,8 +652,15 @@ int tc2_gl_read_full(uint8_t *rgb,int cap) {
 }
 
 void qtc2_draw(const float view[16],const float proj[16],int w,int h,unsigned framebuffer){
+    uint64_t started=profiling?SDL_GetPerformanceCounter():0;qgpu_timer_begin(&gpu_timer);
     memcpy(vr_view,view,sizeof vr_view);memcpy(vr_projection,proj,sizeof vr_projection);output_framebuffer=framebuffer;
-    if(w!=requested_w||h!=requested_h){requested_w=w;requested_h=h;targets();}
+    output_width=w;output_height=h;
+    int percent=qvr_scene_is_panel()?100:scene_percent;
+    int rw=(w*percent+99)/100,rh=(h*percent+99)/100;
+    if(rw!=requested_w||rh!=requested_h){requested_w=rw;requested_h=rh;targets();}
+    render_stats.scene_width=rw;render_stats.scene_height=rh;render_stats.scene_percent=percent;render_stats.eyes++;
     const tc2_built *b=qvr_current_frame();
     if(b)tc2_gl_draw(b);else {glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,w,h);glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);}
+    qgpu_timer_end(&gpu_timer);
+    if(started){double ms=(SDL_GetPerformanceCounter()-started)*1000.0/SDL_GetPerformanceFrequency();render_stats.cpu_submit_ms=render_stats.cpu_submit_ms?.9*render_stats.cpu_submit_ms+.1*ms:ms;}
 }

@@ -30,6 +30,8 @@
 #include "quest_ui.h"
 #include "quest_tracer.h"
 #include "quest_feedback.h"
+#include "quest_support_grip.h"
+#include "quest_render_control.h"
 #include "tc2_game.h"
 static const int qtc2_cabinet_side=1;
 
@@ -71,6 +73,9 @@ static bool shot_pending,shot_needs_release,fire_output_down,options_saved=true;
 static int active_weapon_hand=RIGHT_HAND;
 static QOptions options;
 static QCover cover;
+static QSupportGrip support_grip;
+static QCoverButton cover_button_state;
+extern int tc2_depth_mode;
 static bool cover_calibration_pending=true;
 static const char *options_path="quest-options.cfg";
 static XrTime game_deadline;
@@ -180,6 +185,7 @@ static void stop_weapon_feedback(void){
     haptic_active=false;feedback=(QFeedback){0};recoil_started=0;tracer.active=false;
 }
 static void reset_fire_input(void){
+    support_grip=(QSupportGrip){0};cover_button_state=(QCoverButton){0};
     stop_weapon_feedback();
     tracer.active=false;
     memset(fire_triggers,0,sizeof fire_triggers);shot_pending=shot_needs_release=fire_output_down=false;
@@ -199,6 +205,7 @@ static void select_weapon_hand(int hand){
         XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};info.action=haptic_action;info.subactionPath=hand_paths[weapon_hand()];
         xrStopHapticFeedback(session,&info);
     }
+    support_grip=(QSupportGrip){0};cover_button_state=(QCoverButton){0};
     stop_weapon_feedback();active_weapon_hand=hand;recoil_started=0;tracer.active=false;aim_valid=gun_tracked=false;
 }
 static void change_weapon_hand(void){
@@ -220,7 +227,7 @@ static void apply_weapon_model(void){
 }
 static void toggle_weapon_model(void){
     options.machine_gun=!options.machine_gun;
-    apply_weapon_model();
+    reset_fire_input();apply_weapon_model();
     options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] weapon model %s; saved %d\n",options.machine_gun?"MACHINE GUN":"PISTOL",options_saved);
 }
@@ -411,7 +418,7 @@ static bool events(void){
         if(s.type==SDL_QUIT)quit=true;
 #ifdef TCVR_PC
         if(s.type==SDL_KEYDOWN&&!s.key.repeat){
-            if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();ss22_input_neutral();}
+            if(s.key.keysym.sym==SDLK_ESCAPE){paused=!paused;if(paused)qvr_trace_set(false);filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();ss22_input_neutral();}
             if(s.key.keysym.sym==SDLK_c||s.key.keysym.sym==SDLK_5)coin_frames=48;
             if(s.key.keysym.sym==SDLK_l)cycle_aim_guide();
             if(s.key.keysym.sym==SDLK_TAB&&paused){change_options_page(1);}
@@ -461,7 +468,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
     if(!XR(xrSyncActions(session,&sync))){reset_input_edges();return;}
-    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
+    if(pressed(pause_action,XR_NULL_PATH,&pause_button)){paused=!paused;if(paused)qvr_trace_set(false);filter_armed=false;reset_fire_input();reset_pitch_input();reset_distance_input();game_deadline=0;tc2_audio_volume(paused?0:100);ss22_input_neutral();}
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();return;}
@@ -485,7 +492,11 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     }
     /* Cover must work even when the weapon controller is out of view. */
     bool exposed=qcover_pedal(&cover,head_y,head_tracked);
-    if(!paused)pedal=options.physical_crouch?(!cover_calibration_pending&&exposed?1.f:0.f):fmaxf(axis(grip_action,hand_paths[LEFT_HAND]),axis(grip_action,hand_paths[RIGHT_HAND]));
+    XrActionStateFloat grip_values[2];bool grip_valid[2];float grip_level[2];
+    for(int h=0;h<2;h++){
+        grip_valid[h]=axis_state(grip_action,hand_paths[h],&grip_values[h])&&isfinite(grip_values[h].currentState);
+        grip_level[h]=grip_valid[h]?fmaxf(0,fminf(1,grip_values[h].currentState)):0;
+    }
     XrSpaceLocation locations[HAND_COUNT];bool tracked[HAND_COUNT]={false,false},edges[HAND_COUNT]={false,false},available[HAND_COUNT];
     XrActionStateFloat fire[HAND_COUNT];
     XrSpaceLocationFlags required=XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
@@ -511,6 +522,16 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         select_weapon_hand(chosen);shot_pending=true;shot_needs_release=fire_output_down;
     }
     int hand=weapon_hand();
+    bool support_enabled=options.two_hand&&options.machine_gun;
+    /* In two-hand mode the support grip is reserved for the weapon; only the
+     * firing-hand grip operates cover. One-hand defaults remain unchanged. */
+    float cover_value=support_enabled?grip_level[hand]:fmaxf(grip_level[0],grip_level[1]);
+    bool cover_available=support_enabled?grip_valid[hand]:(grip_valid[0]||grip_valid[1]);
+    if(options.cover_toggle&&!tracked[hand])cover_available=false;
+    if(!paused){
+        if(options.physical_crouch){pedal=!cover_calibration_pending&&exposed?1.f:0.f;cover_button_state=(QCoverButton){0};}
+        else pedal=qcover_button(&cover_button_state,cover_value,cover_available,options.cover_toggle);
+    }else cover_button_state=(QCoverButton){0};
     if(!available[hand])shot_pending=shot_needs_release=false;
     if(tracked[hand]){
         gun_position=relative_position(locations[hand].pose.position);gun_rotation=relative_rotation(locations[hand].pose.orientation);gun_tracked=true;
@@ -522,21 +543,26 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
          * before the pitch correction so fitting does not swing around the barrel. */
         Q4 hand_rotation=relative_rotation(locations[hand].pose.orientation);
         gun_position=add(gun_position,rotate(hand_rotation,v3(0,options.gun_offset_y_mm*.001f,options.gun_offset_z_mm*.001f)));
+        V3 support=tracked[1-hand]?relative_position(locations[1-hand].pose.position):v3(0,0,0);
+        qsupport_update(&support_grip,support_enabled&&!paused,tracked[1-hand]&&grip_valid[1-hand],grip_level[1-hand],gun_position,support,&gun_rotation);
         gun_origin=qgun_muzzle(gun_position,gun_rotation);
         V3 dir=rotate(gun_rotation,v3(0,0,-1));
         aim_valid=qvr_aim(gun_origin,dir,&nx,&ny,&gun_hit);
         if(!aim_valid)gun_hit=add(gun_origin,mul(dir,2.5f));
         if(!paused&&fire_triggers[hand].pressed)trigger=1;
-    }else shot_pending=shot_needs_release=false;
+    }else {shot_pending=shot_needs_release=false;support_grip=(QSupportGrip){0};}
     if(paused||!gun_tracked||trigger<=.55f||pedal<=.55f)stop_weapon_feedback();
 }
 
 /* Input tests compile the real action and polling code without a window/runtime. */
 #ifndef TCVR_INPUT_TEST
+#include "quest_host_metrics.inc"
 bool tc2_vr_open(void){
     replay_input=getenv("TC2_REPLAY")!=NULL;
     qoptions_load(options_path,&options);tc2_gl_set_filter(options.texture_filtering);qvr_wide_fov_enabled=options.wide_fov;qvr_world_scale=options.world_scale/100.f;active_weapon_hand=options.left_handed?LEFT_HAND:RIGHT_HAND;
     qvr_view_distance=options.view_distance/100.f;
+    tc2_depth_mode=options.depth_correction?1:0;
+    qtc2_set_scene_percent(qoptions_scene_percent(options.scene_density));
     fprintf(stderr,"[VR SCALE] %.6f reconstructed units/metre; world size %d%%; view distance %d cm\n",qvr_units_per_meter,options.world_scale,options.view_distance);
     fprintf(stderr,"[OPTIONS] laser %s; cover %s; default hand %s; trigger handoff enabled (left menu: options)\n",options.laser_enabled?"ON":"OFF",options.physical_crouch?"PHYSICAL":"GRIP",options.left_handed?"LEFT":"RIGHT");
     fprintf(stderr,"[OPTIONS] gun angle %+d deg\n",options.gun_pitch);
@@ -772,11 +798,15 @@ bool ss22_host_frame(void){
         }
         bool head_tracked=tracking&&frame.shouldRender&&(vs.viewStateFlags&XR_VIEW_STATE_POSITION_TRACKED_BIT);
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
+        qtc2_set_profiling(options.diagnostics);
+        options.scene_trace=qvr_trace_active();
+        if(paused)qvr_trace_flush();
+        update_metrics(frame.shouldRender&&tracking&&focused&&!paused);
         parts[0]+=wall_ms()-stage_start;
         uint64_t feedback_time=SDL_GetTicks64();
         float shot_age=recoil_started?(float)(feedback_time-recoil_started):-1;
         float tracer_alpha=qtracer_opacity(&tracer,feedback_time);
-        float recoil=paused?0:qgun_recoil(shot_age)*(options.recoil_strength/100.f);
+        float recoil=paused?0:qgun_recoil(shot_age)*(options.recoil_strength/100.f)*(support_grip.held?.6f:1.f);
         float flash=paused||!options.muzzle_flash?0:qgun_flash(shot_age);
         XrCompositionLayerProjectionView pv[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         bool draw_frame=frame.shouldRender&&tracking;
@@ -798,6 +828,7 @@ bool ss22_host_frame(void){
             qgl_target(i,eye->fb[index]);
             glViewport(0,0,eye->w,eye->h);
             qgl_eye(v[i],p[i]);
+            qtc2_set_scene_percent(paused?100:qoptions_scene_percent(options.scene_density));
             qtc2_draw(v[i],p[i],eye->w,eye->h,eye->fb[index]);
             if(options.laser_enabled&&focused&&aim_valid&&!paused)qgl_pointer(gun_origin,gun_hit);
             else if(options.tracer_enabled&&focused&&gun_tracked&&!paused&&tracer_alpha>0)
@@ -805,6 +836,10 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
+            if(focused&&!paused&&options.diagnostics){
+                V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
+                qui_draw_metrics(v[i],p[i],head,relative_rotation(views[0].pose.orientation));
+            }
             if(focused&&paused){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 qui_draw(v[i],p[i],head,relative_rotation(views[0].pose.orientation),&options,options_page,qtc2_cabinet_side,options_saved);
