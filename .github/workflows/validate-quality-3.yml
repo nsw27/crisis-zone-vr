@@ -1,0 +1,121 @@
+name: Validate Quest quality and interaction pass
+on:
+  push:
+    branches: [feat/quest-quality-3]
+    paths: [.github/workflows/validate-quality-3.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply only the locally tested, hash-checked patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor d546ef054001b2c22e83e93b20f29a1f3b087f22 HEAD
+          tar -czf source-transport.tar.gz .review/pass3-*.b64
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,gzip,hashlib,re,subprocess
+          parts=[Path(f'.review/pass3-{i}.b64').read_text().strip() for i in range(4)]
+          # Correct two known transcription defects before strict digest validation.
+          parts[0]=parts[0].replace('RNVrb02h77619ZVf/Cfly','RNVrb02h77619flf/Cfly').replace('NHaZOxs74L4CPWC','NHaZOxs7s74L4CPWC')
+          expected=['4ee97cd687038bde028a9336fa1dba3a02c034144f532e6be69adf6a88cd2cde','0e0cf80c1dc70fdf3c54cf1d403814f1d348663ff2d8da44c95db8f607509a6d','6d6017992637b062242a39fce9633bd148a72ecc23b6e2f14b49a0926f6c2094','8e4ffee9bbd59c87afc1207051dc096bceb1c1567c93f213389c1d525923d1e3']
+          for i,s in enumerate(parts):
+              digest=hashlib.sha256(s.encode()).hexdigest()
+              print('Transport',i,len(s),digest)
+              assert digest==expected[i],f'Transport {i} is not exact; no source applied'
+          patch=gzip.decompress(base64.b64decode(''.join(parts),validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='ce7f966701d4162a02bd5c9b5b098d19929dc9c06e207286b979cc48e3166b54'
+          paths=re.findall(r'^diff --git a/(\S+) b/\1$',patch.decode(),re.M)
+          assert len(paths)==19 and all(Path(p).parts[0] in ('quest','tests','docs') and '..' not in Path(p).parts for p in paths)
+          Path('/tmp/quality.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/quality.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/quality.patch'],check=True)
+          print('Applied exact tested patch to',len(paths),'source files')
+          PY
+          git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install test and compilation dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build unzip wget gcc libegl-dev libgles-dev libsdl2-dev libopenxr-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Compare production code with both working preview sources
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          git show 858bb993fd07cc36e3e19decfca49281da2ba17d:quest/tc2_gl.c > /tmp/preview1-gl.c
+          git show 858bb993fd07cc36e3e19decfca49281da2ba17d:upstream/tc2/src/tc2_render.c > /tmp/preview1-model.c
+          git show 26485c0e765103fe7db7a7d5fa3deea438e34771:quest/tc2_gl.c > /tmp/preview2-gl.c
+          mkdir -p build/candidate-tests build/quality-tests
+          python3 tests/test_quest_candidate.py --baseline-renderer /tmp/preview1-gl.c --baseline-model /tmp/preview1-model.c 2>&1 | tee build/candidate-tests/test.log
+          python3 tests/test_quest_quality.py --baseline-renderer /tmp/preview2-gl.c 2>&1 | tee build/quality-tests/test.log
+      - name: Prepare pinned Android compilation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/sdl .tools/openxr
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q /tmp/ndk.zip -d .tools
+          mv .tools/android-ndk-r29 .tools/ndk
+          grep -q '29.0.14206865' .tools/ndk/source.properties
+          rm /tmp/ndk.zip
+          wget -q -O /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip
+          unzip -q /tmp/sdl.zip -d .tools/sdl
+          wget -q -O /tmp/xr.aar https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar
+          unzip -q /tmp/xr.aar -d .tools/openxr
+      - name: Compile changed production units for ARM64 Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S quest -B build/native -G Ninja -DTC2_CORE_ONLY=ON -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release 2>&1 | tee build/android-configure.log
+          python3 - <<'PY' 2>&1 | tee build/android-objects.log
+          import subprocess
+          wanted={'quest_host.c','quest_ui.c','quest_options.c','tc2_gl.c'}
+          targets=subprocess.check_output(['ninja','-C','build/native','-t','targets','all'],text=True)
+          selected=[line.split(': ',1)[0] for line in targets.splitlines() if 'crisiszone_core.dir/' in line and any(line.split(': ',1)[0].endswith('/'+n+'.o') for n in wanted)]
+          assert len(selected)==len(wanted),selected
+          subprocess.run(['ninja','-C','build/native','-j','2',*selected],check=True)
+          print('PASS: changed production units compile for Android ARM64; no lifted/core/APK build in this job.')
+          PY
+      - name: Commit only validated source on isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Thatcher productions'
+          git config user.email '45753033+nsw27@users.noreply.github.com'
+          git add quest tests docs
+          git rm .review/pass3-*.b64 .github/workflows/validate-quality-3.yml
+          git diff --cached --check
+          git commit -m 'Reduce framebuffer revisits; add text-aware edge smoothing and safe VR pointer menus'
+          git push origin HEAD:refs/heads/feat/quest-quality-3
+          git rev-parse HEAD | tee quality-source-commit.txt
+      - name: Preserve test evidence and source transport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest-quality-3-validation
+          retention-days: 14
+          path: |
+            source-transport.tar.gz
+            quality-source-commit.txt
+            build/candidate-tests/results.json
+            build/candidate-tests/test.log
+            build/candidate-tests/*.ppm
+            build/quality-tests/results.json
+            build/quality-tests/test.log
+            build/quality-tests/*.ppm
+            build/android-configure.log
+            build/android-objects.log
+          if-no-files-found: warn
