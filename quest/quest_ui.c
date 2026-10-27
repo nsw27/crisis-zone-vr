@@ -43,6 +43,17 @@ static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
         }
     }
 }
+/* The bundled arcade font has blank < and > glyphs. Draw visible chevrons
+ * directly inside the same page-button bounds used by pointer hit testing. */
+static void page_arrow(int cx,int cy,int direction){
+    for(int dy=-8;dy<=8;dy++){
+        int dx=direction*(6-(dy<0?-dy:dy));
+        for(int thick=-1;thick<=1;thick++){
+            uint8_t *p=pixels+((cy+dy)*WIDTH+cx+dx+thick)*4;
+            p[0]=255;p[1]=220;p[2]=100;p[3]=255;
+        }
+    }
+}
 static int boot_resolution,last_resolution;
 static unsigned active_width,active_height;
 void qui_set_resolution(int preset,unsigned width,unsigned height){
@@ -56,7 +67,7 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
     }
     const char *titles[]={"CONTROLS  1/4","WEAPON / COMFORT  2/4","GRAPHICS  3/4","HANDLING / DIAGNOSTICS  4/4"};
     if(page<0||page>=QOPTIONS_PAGE_COUNT)page=0;
-    text(24,20,"CRISIS ZONE VR - PREVIEW 3",255,220,100);text(72,50,titles[page],181,207,220);text(24,50,"<",255,220,100);text(592,50,">",255,220,100);
+    text(24,20,"CRISIS ZONE VR - PREVIEW 3",255,220,100);text(72,50,titles[page],181,207,220);page_arrow(36,58,-1);page_arrow(604,58,1);
     char rows[7][40]={{0}};int count=qoptions_row_count(page);
     if(page==0){
         snprintf(rows[0],40,"GUN ANGLE: %+d DEG",o->gun_pitch);

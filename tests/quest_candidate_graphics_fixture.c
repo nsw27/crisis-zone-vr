@@ -32,6 +32,20 @@ int main(int argc,char **argv){
             }
         }
     }
+    /* Render pixel-aligned panel: both actual page buttons must be visible,
+     * including when the bundled font has no less/greater-than glyphs. */
+    float av[16]={0},ap[16]={0};av[0]=av[5]=av[10]=av[15]=1;
+    ap[0]=1/.65f;ap[5]=1/.4875f;ap[15]=1;selected=0;
+    glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(av,ap,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);image_hash();
+    for(int side=0;side<2;side++){
+        int gold=0,left=side?584:16;
+        for(int y=42;y<76;y++)for(int x=left;x<left+40;x++){
+            const unsigned char *px=pixels+((479-y)*640+x)*4;
+            if(px[0]>180&&px[1]>140&&px[2]<160)gold++;
+        }
+        assert(gold>=20);
+    }
     /* Cursor is a uniform, not a per-frame upload of the entire menu texture. */
     selected=0;qui_set_pointer(100,100,false);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,2,1,true);unsigned long no_pointer=image_hash();
