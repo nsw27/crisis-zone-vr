@@ -37,7 +37,7 @@ def package(assets, rom, bundle_roms=True, native_dir=None):
     sources=list((ROOT/'.tools/sdl/SDL2-2.30.11/android-project/app/src/main/java').rglob('*.java'))+list((ROOT/'quest/java').rglob('*.java'))
     argfile=BUILD/'javac.args'
     argfile.write_text('\n'.join('"'+str(p).replace('\\','/')+'"' for p in sources))
-    run([JAVA/'javac.exe','-source','8','-target','8','-classpath',android,'-d',classes,'@'+str(argfile)])
+    run([JAVA/'javac.exe','-encoding','UTF-8','-source','8','-target','8','-classpath',android,'-d',classes,'@'+str(argfile)])
     jar=BUILD/'classes.jar';run([JAVA/'jar.exe','--create','--file',jar,'-C',classes,'.'])
     dex=BUILD/'dex';dex.mkdir(exist_ok=True)
     run([JAVA/'java.exe','-cp',bt/'lib/d8.jar','com.android.tools.r8.D8','--lib',android,'--min-api','29','--output',dex,jar])
