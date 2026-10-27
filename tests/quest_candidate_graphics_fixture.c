@@ -32,6 +32,14 @@ int main(int argc,char **argv){
             }
         }
     }
+    /* Changing the feature must invalidate the cached panel texture without
+     * moving the highlighted row. */
+    selected=3;glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
+    unsigned long before_mode=image_hash();o.expanded_weapons=true;
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
+    assert(image_hash()!=before_mode);o.expanded_weapons=false;
     /* Render pixel-aligned panel: both actual page buttons must be visible,
      * including when the bundled font has no less/greater-than glyphs. */
     float av[16]={0},ap[16]={0};av[0]=av[5]=av[10]=av[15]=1;
@@ -66,5 +74,5 @@ int main(int argc,char **argv){
         }
     }
     qgun_shutdown();qui_shutdown();eglMakeCurrent(d,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);eglDestroyContext(d,c);eglDestroySurface(d,s);eglTerminate(d);
-    puts("PASS: all 23 menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors");return 0;
+    puts("PASS: all 24 menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors");return 0;
 }

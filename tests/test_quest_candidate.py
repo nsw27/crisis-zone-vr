@@ -21,10 +21,11 @@ def test(name,sources,extra=(),links=(),capture=False):
             import shutil
             for img in Path(tmp).glob('*.ppm'):shutil.copy2(img,a.out/img.name)
     results[name]='passed';return output
+test('weapon-policy',['tests/quest_weapon_rules_fixture.c','quest/crisis_zone_weapons.c'])
 test('gpu-query-protocol',['tests/quest_gpu_timer_fixture.c'])
 test('support',['tests/quest_support_fixture.c','quest/quest_options.c'])
 test('trace',['tests/quest_trace_fixture.c','quest/tc2_scene.c'])
-common=['quest/quest_options.c','quest/quest_cover.c','upstream/crszone/src/csz_game.c']
+common=['quest/crisis_zone_weapons.c','quest/quest_options.c','quest/quest_cover.c','upstream/crszone/src/csz_game.c']
 test('world-renderer',['tests/quest_world_renderer_fixture.c'],links=['-pthread'])
 test('scene',['tests/crisis_zone_scene_fixture.c','quest/tc2_scene.c'])
 x=test('rays',['tests/quest_candidate_ray_fixture.c','quest/tc2_scene.c'],capture=True)

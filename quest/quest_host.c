@@ -30,6 +30,7 @@
 #include "quest_ui.h"
 #include "quest_tracer.h"
 #include "quest_feedback.h"
+#include "crisis_zone_weapons.h"
 #include "quest_support_grip.h"
 #include "quest_render_control.h"
 #include "tc2_game.h"
@@ -189,6 +190,7 @@ static void stop_weapon_feedback(void){
     haptic_active=false;feedback=(QFeedback){0};recoil_started=0;tracer.active=false;
 }
 static void reset_fire_input(void){
+    csz_weapons_cancel();
     support_grip=(QSupportGrip){0};cover_button_state=(QCoverButton){0};
     stop_weapon_feedback();
     tracer.active=false;
@@ -210,6 +212,7 @@ static void select_weapon_hand(int hand){
         xrStopHapticFeedback(session,&info);
     }
     support_grip=(QSupportGrip){0};cover_button_state=(QCoverButton){0};
+    csz_weapons_cancel();
     stop_weapon_feedback();active_weapon_hand=hand;recoil_started=0;tracer.active=false;aim_valid=gun_tracked=false;
 }
 static void change_weapon_hand(void){
@@ -228,6 +231,16 @@ extern int qvr_wide_fov_enabled;
 static void apply_weapon_model(void){
     if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
     qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
+    csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);
+}
+/* A gameplay switch must not reset the shield/toggle-cover state. */
+static void cycle_gameplay_weapon(void){
+    if(!options.expanded_weapons||replay_input)return;
+    options.machine_gun=!options.machine_gun;
+    csz_weapons_cancel();stop_weapon_feedback();support_grip=(QSupportGrip){0};
+    memset(fire_triggers,0,sizeof fire_triggers);
+    shot_pending=shot_needs_release=fire_output_down=false;
+    apply_weapon_model();options_saved=qoptions_save(options_path,&options);
 }
 static void toggle_weapon_model(void){
     options.machine_gun=!options.machine_gun;
@@ -477,6 +490,7 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();menu_click=(QMenuClick){.hand=-1};return;}
+    if(!paused&&change_hand&&head_tracked)cycle_gameplay_weapon();
     adjust_gun_pitch(time);
     adjust_view_distance(time);
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
@@ -530,8 +544,9 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     bool support_enabled=options.two_hand&&options.machine_gun;
     /* In two-hand mode the support grip is reserved for the weapon; only the
      * firing-hand grip operates cover. One-hand defaults remain unchanged. */
-    float cover_value=support_enabled?grip_level[hand]:fmaxf(grip_level[0],grip_level[1]);
-    bool cover_available=support_enabled?grip_valid[hand]:(grip_valid[0]||grip_valid[1]);
+    bool cover_one_hand=options.two_hand&&(options.machine_gun||options.expanded_weapons);
+    float cover_value=cover_one_hand?grip_level[hand]:fmaxf(grip_level[0],grip_level[1]);
+    bool cover_available=cover_one_hand?grip_valid[hand]:(grip_valid[0]||grip_valid[1]);
     if(options.cover_toggle&&!tracked[hand])cover_available=false;
     if(!paused){
         if(options.physical_crouch){pedal=!cover_calibration_pending&&exposed?1.f:0.f;cover_button_state=(QCoverButton){0};}
@@ -567,7 +582,13 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
             if(row>=0){menu_selected=row;reset_pitch_input();if(direction)adjust_horizontal(direction);}
         }
     }
-    if(paused||!gun_tracked||trigger<=.55f||pedal<=.55f)stop_weapon_feedback();
+    csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);
+    csz_weapons_sample(focused&&running&&!paused&&head_tracked&&gun_tracked&&available[hand]&&!qvr_scene_is_panel(),
+                       pedal>.55f,available[hand]?fire[hand].currentState:NAN);
+    /* A confirmed single shot finishes its short recoil envelope even if the
+     * physical trigger was already released; it cannot create another shot. */
+    bool single_feedback=csz_weapons_handgun_active()&&!qvr_scene_is_panel();
+    if(paused||!gun_tracked||pedal<=.55f||(!single_feedback&&trigger<=.55f))stop_weapon_feedback();
 }
 
 /* Input tests compile the real action and polling code without a window/runtime. */
@@ -911,6 +932,7 @@ void ss22_input_update(void){
          * Also retain taps shorter than a 59.906 Hz simulation tick. */
         if(shot_needs_release){fire=false;shot_needs_release=false;}
         else if(shot_pending){fire=true;shot_pending=false;}
+        if(!qvr_scene_is_panel()&&csz_weapons_handgun_active())fire=csz_weapons_pending();
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
@@ -920,7 +942,7 @@ void ss22_input_update(void){
     g_ss22_gun_y=qgun_register(ny,tc2_game.gun_y0,tc2_game.gun_yh);
     tc2_inputs=bits;
 }
-void ss22_input_neutral(void){stop_weapon_feedback();trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
+void ss22_input_neutral(void){csz_weapons_cancel();stop_weapon_feedback();trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
 const eng_ui_page *ss22_input_page(void){return NULL;}
 void ss22_input_event(const SDL_Event *e){(void)e;}
 void ss22_input_motor(uint8_t b){(void)b;}
@@ -936,6 +958,14 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
 /* A held cabinet output describes a burst, not individual confirmed hits.
  * Gate it with the same trigger/cover inputs given to the game. */
 void ss22_out_poll(uint16_t outputs){
+    bool confirmed=csz_weapons_feedback();
+    if(csz_weapons_handgun_active()){
+        if(!focused||!running||paused||!gun_tracked||pedal<=.55f||qvr_scene_is_panel()){stop_weapon_feedback();return;}
+        uint64_t now=SDL_GetTicks64();
+        if(confirmed){shot_feedback(now);ss22_input_rumble(0,42000,40);}
+        else if(recoil_started&&now-recoil_started>=140)stop_weapon_feedback();
+        return;
+    }
     bool allowed=(outputs&2)&&focused&&running&&!paused&&gun_tracked&&
                  trigger>.55f&&pedal>.55f&&fire_output_down;
     uint64_t now=SDL_GetTicks64();int event=qfeedback_tick(&feedback,allowed,now);

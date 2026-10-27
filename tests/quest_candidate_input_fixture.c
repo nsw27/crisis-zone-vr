@@ -2,7 +2,10 @@
 #define main legacy_handedness_main
 #include "handedness_fixture.c"
 #undef main
+unsigned char tc2_ram[0x1000000];
 static QGunKind test_model;
+static bool test_scene_panel;
+bool qvr_scene_is_panel(void){return test_scene_panel;}
 int tc2_depth_mode;
 void qvr_trace_set(bool on){(void)on;}
 void qvr_trace_flush(void){}
@@ -207,6 +210,52 @@ int main(void){
     paused=false;ss22_out_poll(2);assert(feedback.active);focused=false;ss22_out_poll(2);assert(!feedback.active&&!haptic_active);
     focused=true;gun_tracked=false;ss22_out_poll(2);assert(!feedback.active);
     gun_tracked=true;options.haptics=0;ss22_out_poll(2);assert(feedback.active&&!haptic_active);ss22_input_neutral();assert(!feedback.active);
-    puts("PASS: original handoff/cover/tracking controls; new menu rows/pages/edit/reset/persistence; invalid input; output feedback lifecycle");
+    /* Optional weapon mode uses the existing right-stick click only in play.
+     * These host tests model confirmations explicitly; a separate fixture
+     * executes the actual lifted ammo/decrement code. */
+    memset(tc2_ram,0,sizeof tc2_ram);
+    #define TEST_W32(a,v) do{unsigned _a=(a)&0xffffff,_v=(v);for(int _j=0;_j<4;_j++)tc2_ram[_a+_j]=(unsigned char)(_v>>(24-8*_j));}while(0)
+    TEST_W32(0x803ba3f4,0x80549844);TEST_W32(0x803ba3f8,0x805495a0);TEST_W32(0x80549848,40);
+    csz_weapons_init(0x80549844);
+    options.expanded_weapons=true;options.machine_gun=true;options.two_hand=true;
+    options.cover_toggle=true;options.physical_crouch=false;options.left_handed=false;
+    focused=running=origin_set=true;paused=false;menu_head_valid=false;select_weapon_hand(RIGHT_HAND);
+    triggers[0]=triggers[1]=grips[0]=grips[1]=0;reset_input_edges();tick();csz_weapons_begin(0x803b4e00);
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==1);
+    float old_x=nx,old_y=ny;bool old_off=g_ss22_gun_off;
+    unsigned old_gx=g_ss22_gun_x,old_gy=g_ss22_gun_y;
+    triggers[RIGHT_HAND]=1;tick();assert(fire_output_down);
+    buttons[id(hand_action)][2]=true;tick();csz_weapons_begin(0x803b4e00);
+    assert(!options.machine_gun&&test_model==QGUN_PISTOL&&pedal==1);
+    for(int i=0;i<30;i++){tick();csz_weapons_begin(0x803b4e00);assert(!fire_output_down&&!csz_weapons_pending()&&pedal==1);}
+    assert(nx==old_x&&ny==old_y&&g_ss22_gun_x==old_gx&&g_ss22_gun_y==old_gy&&g_ss22_gun_off==old_off);
+    assert(csz_weapons_state()->ammo[1]==12);
+    buttons[id(hand_action)][2]=false;triggers[RIGHT_HAND]=0;tick();triggers[RIGHT_HAND]=1;tick();
+    assert(csz_weapons_pending()&&fire_output_down);
+    TEST_W32(0x80549848,11);csz_weapons_accepted(0x80549844);
+    options.haptics=75;ss22_out_poll(0); /* confirmed shot, not cabinet's cover level */
+    assert(recoil_started&&haptic_active);uint64_t confirmed_time=recoil_started;
+    triggers[RIGHT_HAND]=0;tick();assert(recoil_started==confirmed_time&&!csz_weapons_pending());
+    triggers[RIGHT_HAND]=1;tick();assert(!csz_weapons_pending()); /* still in cooldown */
+    for(int i=0;i<30;i++){tick();csz_weapons_begin(0x803b4e00);assert(!fire_output_down&&!csz_weapons_pending());}
+    assert(csz_weapons_state()->ammo[1]==11);
+    click(hand_action,2);csz_weapons_begin(0x803b4e00);assert(options.machine_gun&&pedal==1);
+    click(hand_action,2);csz_weapons_begin(0x803b4e00);assert(!options.machine_gun&&csz_weapons_state()->ammo[1]==11&&pedal==1);
+    triggers[RIGHT_HAND]=0;tick();triggers[RIGHT_HAND]=1;tick();assert(csz_weapons_pending());
+    focused=false;tick();assert(!csz_weapons_pending()&&!fire_output_down);focused=true;tick();assert(!csz_weapons_pending());
+    triggers[RIGHT_HAND]=0;tick(); /* focus loss safely returned toggle-cover to hidden */
+    assert(pedal==0);grips[RIGHT_HAND]=1;tick();assert(pedal==1);grips[RIGHT_HAND]=0;tick();
+    triggers[RIGHT_HAND]=1;tick();assert(csz_weapons_pending());
+    trigger_active[RIGHT_HAND]=false;tick();assert(!csz_weapons_pending());trigger_active[RIGHT_HAND]=true;tick();assert(!csz_weapons_pending());
+    click(pause_action,2);assert(paused);bool old_hand=options.left_handed;click(hand_action,2);assert(options.left_handed!=old_hand&&paused&&!options.machine_gun);
+    /* Start/menu panels use the original trigger, even with a stale live pointer. */
+    paused=false;test_scene_panel=true;triggers[0]=triggers[1]=0;tick();
+    triggers[weapon_hand()]=1;tick();assert(fire_output_down&&!csz_weapons_pending());
+    test_scene_panel=false;paused=true;
+    options_page=QOPTIONS_PAGE_HANDLING;menu_selected=3;adjust_horizontal(1);assert(!options.expanded_weapons);
+    adjust_horizontal(1);qoptions_load(options_path,&saved);assert(saved.expanded_weapons);
+    reset_page_setting();qoptions_load(options_path,&saved);assert(!saved.expanded_weapons);
+    #undef TEST_W32
+    puts("PASS: original controls and feedback; optional 12-round host mode, fresh-press weapon switching without changing cover/aim, no held-trigger shots, action/focus recovery and persistence");
     return 0;
 }
