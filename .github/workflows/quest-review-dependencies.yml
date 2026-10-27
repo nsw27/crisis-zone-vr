@@ -1,0 +1,29 @@
+name: Quest review dependencies (no game build)
+on:
+  push:
+    branches: [fix/quest-reconciled-source-only]
+    paths: [.github/workflows/quest-review-dependencies.yml]
+permissions:
+  contents: read
+jobs:
+  headers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install test development headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl-dev libgles-dev libsdl2-dev libopenxr-dev
+      - name: Collect test dependencies (no compile)
+        run: |
+          mkdir -p review-deps/include/SDL2 review-deps/lib
+          cp -a /usr/include/EGL /usr/include/GLES /usr/include/GLES2 /usr/include/GLES3 /usr/include/KHR /usr/include/openxr /usr/include/SDL2 review-deps/include/
+          cp -a /usr/include/x86_64-linux-gnu/SDL2/. review-deps/include/SDL2/
+          cp -L /usr/lib/x86_64-linux-gnu/libSDL2.so /usr/lib/x86_64-linux-gnu/libEGL.so /usr/lib/x86_64-linux-gnu/libGLESv2.so review-deps/lib/
+          tar -czf quest-review-deps.tar.gz review-deps
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quest-review-deps
+          path: quest-review-deps.tar.gz
+          if-no-files-found: error
+          retention-days: 2
