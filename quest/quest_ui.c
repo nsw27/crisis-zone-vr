@@ -85,7 +85,9 @@ static void panel(const QOptions *options,int page,int boot_side,bool saved){
         text(24,156,"LEFT/RIGHT: CLOSER / FURTHER",181,207,220);
         text(24,190,"LEFT CLICK: RESET BOTH OFFSETS",181,207,220);
         text(24,222,"+UP RAISES / +BACK PULLS TOWARDS YOU",181,207,220);
+        if(qvr_menu_selected()==4)highlight(260,22);
         text(24,264,options->machine_gun?"WEAPON MODEL: MACHINE GUN":"WEAPON MODEL: PISTOL",255,202,110);
+        text(448,264,"RIGHT STICK",181,207,220);
         text(24,290,"HOLD TRIGGER FOR AUTOMATIC FIRE",181,207,220);
         text(24,322,"RELEASE GRIPS TO HIDE / RELOAD",255,202,110);
         text(24,364,left_handed?"X LEFT: ADD CREDITS":"A RIGHT: ADD CREDITS",181,207,220);

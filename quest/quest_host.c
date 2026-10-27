@@ -203,6 +203,15 @@ static void toggle_texture_filter(void){
     fprintf(stderr,"[OPTIONS] texture filtering %s; saved %d\n",options.texture_filtering?"ON":"OFF",options_saved);
 }
 extern int qvr_wide_fov_enabled;
+static void apply_weapon_model(void){
+    qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
+}
+static void toggle_weapon_model(void){
+    options.machine_gun=!options.machine_gun;
+    apply_weapon_model();
+    options_saved=qoptions_save(options_path,&options);
+    fprintf(stderr,"[OPTIONS] weapon model %s; saved %d\n",options.machine_gun?"MACHINE GUN":"PISTOL",options_saved);
+}
 static void toggle_wide_fov(void){
     options.wide_fov=!options.wide_fov;
     qvr_wide_fov_enabled=options.wide_fov;
@@ -266,6 +275,7 @@ static void adjust_horizontal(int direction){
         else if(menu_selected==1)set_gun_offset(false,options.gun_offset_z_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
         else if(menu_selected==2)options.texture_filtering=!options.texture_filtering;
         else if(menu_selected==3)toggle_wide_fov();
+        else if(menu_selected==4)toggle_weapon_model();
     }
     else {
         if(menu_selected==0)set_gun_pitch(options.gun_pitch+direction);
@@ -725,8 +735,10 @@ graphics_ready:
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
     if(!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
-    qgun_select(QGUN_PISTOL);
-    fprintf(stderr,"[GUN] Crisis Zone uses the TC2 blue arcade pistol model\n");
+    if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
+        fprintf(stderr,"[GUN] machine gun model unavailable; pistol only\n");
+    qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
+    fprintf(stderr,"[GUN] weapon model %s\n",options.machine_gun?"MACHINE GUN":"PISTOL");
     if(!qui_init())goto fail;
     qui_set_resolution(options.resolution,eyes[0].w,eyes[0].h);
     if(!tc2_gl_init())goto fail;
@@ -879,7 +891,18 @@ void ss22_input_update(void){
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
-    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)(tc2_game.gun_x0+nx*tc2_game.gun_xw);g_ss22_gun_y=(uint16_t)(tc2_game.gun_y0+ny*tc2_game.gun_yh);
+    /* Map into the legal Crisis Zone gun range before the uint16 cast.
+       A small aim overflow clamps to the edge; it must never wrap. */
+    float ax=nx, ay=ny;
+    if(ax<-0.15f)ax=-0.15f; if(ax>1.15f)ax=1.15f;
+    if(ay<-0.15f)ay=-0.15f; if(ay>1.15f)ay=1.15f;
+    int gx=(int)(tc2_game.gun_x0+ax*tc2_game.gun_xw+0.5f);
+    int gy=(int)(tc2_game.gun_y0+ay*tc2_game.gun_yh+0.5f);
+    int xmax=(int)tc2_game.gun_x0+(int)tc2_game.gun_xw;
+    int ymax=(int)tc2_game.gun_y0+(int)tc2_game.gun_yh;
+    if(gx<(int)tc2_game.gun_x0)gx=(int)tc2_game.gun_x0; if(gx>xmax)gx=xmax;
+    if(gy<(int)tc2_game.gun_y0)gy=(int)tc2_game.gun_y0; if(gy>ymax)gy=ymax;
+    g_ss22_gun_off=!aim_valid;g_ss22_gun_x=(uint16_t)gx;g_ss22_gun_y=(uint16_t)gy;
     tc2_inputs=bits;
 }
 void ss22_input_neutral(void){trigger=pedal=0;shot_pending=shot_needs_release=fire_output_down=false;if(!replay_input)tc2_inputs=0;}
@@ -897,7 +920,7 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
 }
 #ifndef TCVR_INPUT_TEST
 /* PORT: Crisis Zone holds its solenoid high for a burst; refresh feedback at 10 Hz. */
-void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool firing=(outputs&2)&&focused&&!paused;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,65535,110);}}
+void ss22_out_poll(uint16_t outputs){static uint16_t previous;static uint64_t last;uint64_t now=SDL_GetTicks64();bool solenoid=(outputs&2)&&focused&&!paused;bool firing=solenoid&&trigger>.55f;bool pulse=firing&&(!(previous&2)||now-last>=100);previous=outputs;if(pulse){last=now;shot_feedback(now);ss22_input_rumble(0,65535,110);}}
 void ss22_out_close(void){}
 bool ss22_host_active(void){return active;}
 bool ss22_host_restart_requested(void){return false;}

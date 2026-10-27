@@ -23,9 +23,8 @@ int tc2_window_active(void) { return opened; }
 void tc2_window_frame(void) {
     const char *limit=getenv("TC2_MAX_FRAMES");
     if(!opened) {if(limit&&rr_frame>=strtoul(limit,NULL,10)){tc2_on_exit();exit(0);}return;}
-    /* User-selected TC2 blue arcade pistol appearance. CSZO4's automatic
-     * fire, ammunition and cover/reload behavior remain game-controlled. */
-    qgun_select(QGUN_PISTOL);
+    /* Weapon model is selected from options in the host. Do not overwrite it.
+     * CSZO4's automatic fire, ammunition and cover/reload remain game-controlled. */
     qvr_scene_prepare(tc2_built_latest_wait());
     static uint64_t started;if(!started)started=SDL_GetPerformanceCounter();
     if(rr_frame&&rr_frame%300==0)fprintf(stderr,"[CZVR] frame %u elapsed %.3f s\n",rr_frame,(SDL_GetPerformanceCounter()-started)/(double)SDL_GetPerformanceFrequency());

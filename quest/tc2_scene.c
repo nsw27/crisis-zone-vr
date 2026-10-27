@@ -157,13 +157,14 @@ void qvr_scene_prepare(const tc2_built *b){
         }
         if(layer!=QTC2_WORLD)continue;
         Camera c=camera(b,p);
-        if(wide_fov != 1.f) c.f *= wide_fov;   /* experimental: pull more geometry into view */
+        /* Aim must use the real optical camera. Do not scale its focal length. */
         int k;
         for(k=0;k<nc;k++)if(!memcmp(&c,&candidates[k].cam,sizeof c))break;
         if(k==nc&&nc<64){candidates[nc].cam=c;candidates[nc++].count=0;}
         if(k<nc)candidates[k].count+=(unsigned)(p->n-2);
     }
     unsigned best=0;for(int i=0;i<nc;i++)if(candidates[i].count>best){main_camera=candidates[i].cam;best=candidates[i].count;}
+    (void)wide_fov;
     float low=FLT_MAX,high=0;
     for(int i=0;i<b->npoly;i++){
         const tc2_poly *p=&b->polys[i];if(!world(b,p)||p->n<3||p->n>8)continue;
@@ -207,17 +208,16 @@ bool qvr_aim(V3 o,V3 d,float *nx,float *ny,V3 *hit){
         if(qvr_flat_view)c=(Camera){320,240,500};
     }
     if(projected.z>=-1e-6f)return false;
-    /* Use a wide fixed projection so extreme angles produce coordinates
-       that can fall outside the original 0-1 arcade range. */
-    float wide_f = c.f * 2.8f;
-    *nx=(320.f+wide_f*projected.x/-projected.z)/640.f;
-    *ny=(240.f-wide_f*projected.y/-projected.z)/480.f;
-    /* Accept a wide range and only soft-limit extremes so shots can land
-       past the original screen edges instead of being pulled back. */
-    if(*nx < -2.0f || *nx > 3.0f || *ny < -2.0f || *ny > 3.0f)
+    /* Project with the real optical camera. Scaling the focal length made
+       center aim jump. A small overflow is kept so a look just past the
+       original edges still maps to the edge of the legal gun range. */
+    *nx=(320.f+c.f*projected.x/-projected.z)/640.f;
+    *ny=(240.f-c.f*projected.y/-projected.z)/480.f;
+    const float margin = 0.15f;
+    if(*nx < -margin || *nx > 1.f+margin || *ny < -margin || *ny > 1.f+margin)
         return false;
-    *nx = fmaxf(-1.8f, fminf(2.8f, *nx));
-    *ny = fmaxf(-1.8f, fminf(2.8f, *ny));
+    *nx = fmaxf(-margin, fminf(1.f+margin, *nx));
+    *ny = fmaxf(-margin, fminf(1.f+margin, *ny));
     return true;
 }
 
