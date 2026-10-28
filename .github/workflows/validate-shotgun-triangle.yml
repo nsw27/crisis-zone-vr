@@ -1,0 +1,137 @@
+name: Verify Enhanced three-pellet shotgun
+on:
+  push:
+    branches: [feat/quest-weapons-4]
+    paths: [.github/workflows/validate-shotgun-triangle.yml]
+permissions:
+  contents: write
+concurrency:
+  group: enhanced-shotgun-source-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify and apply exact locally tested source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          tar -czf build/shotgun-source-transport.tar.gz .review/shotgun-triangle-*.b64
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,subprocess
+          from pathlib import Path
+          data=base64.b64decode(''.join(Path(f'.review/shotgun-triangle-{i}.b64').read_text().strip() for i in range(3)),validate=True)
+          assert hashlib.sha256(data).hexdigest()=='f4dc3e61fe61712e48a65a5a16310e62b13e1dcdbba74bcbf8867035cf46adeb','Transport hash mismatch'
+          payload=json.loads(gzip.decompress(data))
+          assert payload['base']=='5c6b4be1eb77afc7a31015b3950a0042f37828bc'
+          subprocess.run(['git','merge-base','--is-ancestor',payload['base'],'HEAD'],check=True)
+          pending=[]
+          for item in payload['changes']:
+              p=Path(item['path'])
+              assert not p.is_absolute() and '..' not in p.parts and p.parts[0] in ('quest','tests','tools','docs')
+              old=p.read_bytes() if p.exists() else b''
+              assert (hashlib.sha256(old).hexdigest() if p.exists() else None)==item['old'],str(p)
+              lines=old.decode('utf-8').splitlines(keepends=True)
+              for start,end,text in reversed(item['edits']):lines[start:end]=text.splitlines(keepends=True)
+              result=''.join(lines).encode('utf-8')
+              assert hashlib.sha256(result).hexdigest()==item['new'],str(p)
+              pending.append((p,result))
+          for p,result in pending:p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(result)
+          Path('build/shotgun-source-manifest.json').write_text(json.dumps({str(p):hashlib.sha256(b).hexdigest() for p,b in pending},indent=2)+'\n')
+          print('Applied',len(pending),'hash-verified source files; no ROM or original generated source modified.')
+          PY
+          git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install regression dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc cmake ninja-build unzip wget libegl-dev libgles-dev libsdl2-dev libopenxr-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Exercise native firing, projection and hit dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -u tests/test_shotgun_dispatch.py 2>&1 | tee build/shotgun-dispatch.log
+          python3 -u tests/test_weapon_hooks.py 2>&1 | tee build/weapon-hooks.log
+      - name: Verify all three weapon controls, visuals and existing regressions
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          git show 858bb993fd07cc36e3e19decfca49281da2ba17d:quest/tc2_gl.c > /tmp/preview1-gl.c
+          git show 858bb993fd07cc36e3e19decfca49281da2ba17d:upstream/tc2/src/tc2_render.c > /tmp/preview1-model.c
+          python3 -u tests/test_quest_candidate.py --baseline-renderer /tmp/preview1-gl.c --baseline-model /tmp/preview1-model.c 2>&1 | tee build/candidate-tests.log
+          python3 -u tests/test_arcade_weapons.py 2>&1 | tee build/arcade-assets.log
+      - name: Prepare pinned ARM64 toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/sdl .tools/openxr
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q /tmp/ndk.zip -d .tools
+          mv .tools/android-ndk-r29 .tools/ndk
+          grep -q '29.0.14206865' .tools/ndk/source.properties
+          rm /tmp/ndk.zip
+          wget -q -O /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip
+          unzip -q /tmp/sdl.zip -d .tools/sdl
+          wget -q -O /tmp/xr.aar https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar
+          unzip -q /tmp/xr.aar -d .tools/openxr
+      - name: Compile changed host and original-code hook objects for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S quest -B build/native -G Ninja -DTC2_CORE_ONLY=ON -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release 2>&1 | tee build/android-configure.log
+          python3 - <<'PY' 2>&1 | tee build/android-objects.log
+          import subprocess
+          wanted={'quest_host.c','quest_ui.c','quest_options.c','crisis_zone_weapons.c','crszone_lifted_00.c','crszone_lifted_08.c'}
+          lines=subprocess.check_output(['ninja','-C','build/native','-t','targets','all'],text=True).splitlines()
+          targets=[line.split(': ',1)[0] for line in lines if 'crisiszone_core.dir/' in line and any(line.split(': ',1)[0].endswith('/'+name+'.o') for name in wanted)]
+          assert len(targets)==len(wanted),targets
+          subprocess.run(['ninja','-C','build/native','-j','1',*targets],check=True)
+          print('PASS: six affected production objects compiled for arm64-v8a with NDK 29.0.14206865.')
+          PY
+      - name: Commit verified source without touching existing APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          current=$(git ls-remote origin refs/heads/feat/quest-weapons-4 | cut -f1)
+          test "$current" = "$GITHUB_SHA"
+          git config user.name 'Thatcher productions'
+          git config user.email '45753033+nsw27@users.noreply.github.com'
+          git add quest tests tools docs
+          git rm .review/shotgun-triangle-0.b64 .review/shotgun-triangle-1.b64 .review/shotgun-triangle-2.b64 .github/workflows/validate-shotgun-triangle.yml
+          git diff --cached --check
+          git commit -m 'Add three-shell shotgun with bounded staggered native triangle hit rays'
+          git push origin HEAD:feat/quest-weapons-4
+          git rev-parse HEAD | tee build/shotgun-source-sha.txt
+      - name: Preserve source and test evidence, not game input or signing material
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enhanced-shotgun-triangle-verification
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            build/shotgun-source-transport.tar.gz
+            build/shotgun-source-manifest.json
+            build/shotgun-source-sha.txt
+            build/shotgun-dispatch.log
+            build/shotgun-dispatch/results.json
+            build/weapon-hooks.log
+            build/weapon-hooks/results.json
+            build/candidate-tests.log
+            build/candidate-tests/results.json
+            build/candidate-tests/cover-selector.ppm
+            build/arcade-assets.log
+            build/arcade-assets/results.json
+            build/android-configure.log
+            build/android-objects.log
