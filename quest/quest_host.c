@@ -779,8 +779,8 @@ graphics_ready:
 #ifndef TCVR_PC
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
-    if(!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
-    if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
+    if(!qgun_init("models/namco-gun-pink.tcgun")&&!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
+    if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/arcade-machine-gun.tcgun")&&!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] machine gun model unavailable; pistol only\n");
     if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
     qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);

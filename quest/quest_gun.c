@@ -27,7 +27,7 @@ bool qgun_load_weapon(QGunKind kind,const char *path){
     GunMesh mesh={0};
     FILE *f=fopen(path,"rb");if(!f){fprintf(stderr,"[GUN] missing model: %s\n",path);return false;}
     char magic[8];uint32_t n[4]={0,0,1,1};float tip[3];
-    GunVertex *vertices=NULL;uint32_t *indices=NULL;uint8_t *pixels=NULL;bool ok=false;
+    GunVertex *vertices=NULL;uint32_t *indices=NULL;uint8_t *pixels=NULL;bool ok=false,has_slide=false;
     if(fread(magic,1,8,f)!=8)goto done;
     bool legacy=!memcmp(magic,"TCGUN001",8);
     if(!legacy&&memcmp(magic,"TCGUN002",8))goto done;
@@ -43,7 +43,7 @@ bool qgun_load_weapon(QGunKind kind,const char *path){
         if(legacy){memcpy(vertices[i].uv,raw+6,8);for(int j=0;j<3;j++)vertices[i].color[j]=1;}
         else{
             if(raw[9]!=0&&raw[9]!=1&&raw[9]!=2)goto done;
-            vertices[i].part=raw[9];
+            vertices[i].part=raw[9];has_slide|=raw[9]==2;
             for(int j=0;j<3;j++){
                 float c=raw[6+j];if(c<0||c>1)goto done;
                 /* Palette bytes are display-encoded, like the old sRGB atlas. */
@@ -80,11 +80,11 @@ bool qgun_load_weapon(QGunKind kind,const char *path){
     glEnableVertexAttribArray(3);glVertexAttribPointer(3,3,GL_FLOAT,GL_FALSE,sizeof(GunVertex),(void*)32);
     glEnableVertexAttribArray(4);glVertexAttribPointer(4,1,GL_FLOAT,GL_FALSE,sizeof(GunVertex),(void*)44);
     mesh.index_count=(GLsizei)n[1];mesh.muzzle=v3(tip[0],tip[1],tip[2]);
-    mesh.articulated=!legacy;
+    mesh.articulated=has_slide;
     ok=glGetError()==GL_NO_ERROR;
     if(ok){
         delete_mesh(&meshes[kind]);meshes[kind]=mesh;
-        fprintf(stderr,"[GUN] %s loaded: %u vertices, %u triangles; %s\n",path,n[0],n[1]/3,mesh.articulated?"animated slide and trigger":"textured mesh with recoil");
+        fprintf(stderr,"[GUN] %s loaded: %u vertices, %u triangles; %s\n",path,n[0],n[1]/3,mesh.articulated?"animated slide and trigger":legacy?"textured mesh with recoil":"vertex-colour shell with whole-gun recoil");
     }
 done:
     fclose(f);free(vertices);free(indices);free(pixels);

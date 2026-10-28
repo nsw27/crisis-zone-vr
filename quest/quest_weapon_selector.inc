@@ -1,3 +1,4 @@
+#include "quest_weapon_colours.h"
 /* Cover-only informational loadout strip. Uses the existing UI shader/font,
  * one small texture updated only when the confirmed state or request changes.
  * No game writes, new aiming marker, shield replacement or firing side effects. */
@@ -50,9 +51,11 @@ static void weapon_selector_upload(void){
      * damage/asset integration before it becomes a selectable card. */
     for(int i=0;i<QWEAPON_COUNT;i++){
         int x=16+i*312;bool chosen=i==weapon_selector_requested;
-        weapon_strip_rect(x,30,296,74,chosen?43:24,chosen?132:43,chosen?149:52);
-        weapon_strip_rect(x+2,32,292,70,chosen?20:14,chosen?43:25,chosen?52:32);
-        weapon_strip_text(x+12,39,i==QWEAPON_MACHINE_GUN?"MACHINE GUN":"HANDGUN",false,chosen?255:180,chosen?222:201,chosen?106:213);
+        const uint8_t *colour=q_arcade_weapon_colours[i];
+        weapon_strip_rect(x,30,296,74,colour[0],colour[1],colour[2]);
+        weapon_strip_rect(x+2,32,292,70,chosen?28:14,chosen?37:25,chosen?48:32);
+        if(chosen)weapon_strip_rect(x+7,36,4,60,255,235,150);
+        weapon_strip_text(x+12,39,i==QWEAPON_MACHINE_GUN?"MACHINE GUN":"HANDGUN",false,colour[0],colour[1],colour[2]);
         char rounds[32];snprintf(rounds,sizeof rounds,"%d / %d",weapon_selector_ammo[i],qweapons_capacity((QWeapon)i));
         weapon_strip_text(x+12,62,rounds,false,220,230,240);
         const char *status=chosen&&weapon_selector_selected!=weapon_selector_requested?"SWITCHING...":

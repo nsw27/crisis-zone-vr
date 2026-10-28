@@ -1,0 +1,27 @@
+{
+  "name": "Orange arcade shotgun prop",
+  "author": "Thatcher Productions",
+  "format": "TCGUN002",
+  "generator": "tools/build_arcade_weapons.py",
+  "vertices": 6708,
+  "triangles": 3464,
+  "muzzle_m": [
+    0,
+    0.046,
+    -0.401
+  ],
+  "bounds_m": [
+    [
+      -0.0355,
+      -0.1665,
+      -0.4
+    ],
+    [
+      0.0355,
+      0.078,
+      0.07250000000000001
+    ]
+  ],
+  "sha256": "1301ee2f6e52ece0a87c05558efa64b5be7b3ef075035a5b87ea910001313196",
+  "description": "Original exterior-only game mesh. Not a scan, exact CAD replica, official Namco asset or real weapon design."
+}

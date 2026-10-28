@@ -1,0 +1,18 @@
+{
+  "name": "Pink Namco-style handgun",
+  "original_author": "Martoscar",
+  "colour_variant_by": "Thatcher Productions",
+  "license": "CC-BY-4.0",
+  "source": "https://sketchfab.com/3d-models/namco-arcade-gun-15fbd5b9add94a34b5c21746e3dd32be",
+  "source_asset_sha256": "4a8231dcc6ba717d61ab5783156c3a0d0367572ddb54537b0b283415da12fab8",
+  "sha256": "86fe894e3435d975e375ea62f48216c3b9e325723fcea8a39020f7267c2493b6",
+  "vertices": 13149,
+  "triangles": 17108,
+  "recoloured_pixels": 542745,
+  "muzzle_m": [
+    0.0,
+    0.05406942591071129,
+    -0.17375099658966064
+  ],
+  "modifications": "Only blue shell texels recoloured pink; original geometry, UVs, normals, muzzle and neutral/metal pixels preserved."
+}

@@ -1,0 +1,27 @@
+{
+  "name": "Turquoise Crisis Zone-style cabinet controller",
+  "author": "Thatcher Productions",
+  "format": "TCGUN002",
+  "generator": "tools/build_arcade_weapons.py",
+  "vertices": 9970,
+  "triangles": 5180,
+  "muzzle_m": [
+    0,
+    0.044,
+    -0.306
+  ],
+  "bounds_m": [
+    [
+      -0.045,
+      -0.15150000000000002,
+      -0.305
+    ],
+    [
+      0.045,
+      0.10350000000000001,
+      0.07299999999999998
+    ]
+  ],
+  "sha256": "e6e29e17b16597ebaa30e4578af54786286914db55fd13713d6871b627285fb6",
+  "description": "Original exterior-only game mesh. Not a scan, exact CAD replica, official Namco asset or real weapon design."
+}

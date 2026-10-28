@@ -2,7 +2,7 @@
 #include "vr_math.h"
 
 /* Asset coordinates are metres, +Y up, muzzle facing -Z; origin is the aim pose. */
-typedef enum { QGUN_PISTOL, QGUN_MACHINE_GUN, QGUN_COUNT } QGunKind;
+typedef enum { QGUN_PISTOL, QGUN_MACHINE_GUN, QGUN_SHOTGUN, QGUN_COUNT } QGunKind;
 bool qgun_init(const char *path);
 bool qgun_load_weapon(QGunKind kind,const char *path);
 void qgun_select(QGunKind kind);

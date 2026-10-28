@@ -1,0 +1,94 @@
+{
+  "palette_srgb": {
+    "machine_gun": [
+      55,
+      188,
+      199
+    ],
+    "handgun": [
+      237,
+      107,
+      166
+    ],
+    "shotgun": [
+      255,
+      138,
+      41
+    ]
+  },
+  "assets": {
+    "arcade-machine-gun": {
+      "name": "Turquoise Crisis Zone-style cabinet controller",
+      "author": "Thatcher Productions",
+      "format": "TCGUN002",
+      "generator": "tools/build_arcade_weapons.py",
+      "vertices": 9970,
+      "triangles": 5180,
+      "muzzle_m": [
+        0,
+        0.044,
+        -0.306
+      ],
+      "bounds_m": [
+        [
+          -0.045,
+          -0.15150000000000002,
+          -0.305
+        ],
+        [
+          0.045,
+          0.10350000000000001,
+          0.07299999999999998
+        ]
+      ],
+      "sha256": "e6e29e17b16597ebaa30e4578af54786286914db55fd13713d6871b627285fb6",
+      "description": "Original exterior-only game mesh. Not a scan, exact CAD replica, official Namco asset or real weapon design."
+    },
+    "arcade-shotgun": {
+      "name": "Orange arcade shotgun prop",
+      "author": "Thatcher Productions",
+      "format": "TCGUN002",
+      "generator": "tools/build_arcade_weapons.py",
+      "vertices": 6708,
+      "triangles": 3464,
+      "muzzle_m": [
+        0,
+        0.046,
+        -0.401
+      ],
+      "bounds_m": [
+        [
+          -0.0355,
+          -0.1665,
+          -0.4
+        ],
+        [
+          0.0355,
+          0.078,
+          0.07250000000000001
+        ]
+      ],
+      "sha256": "1301ee2f6e52ece0a87c05558efa64b5be7b3ef075035a5b87ea910001313196",
+      "description": "Original exterior-only game mesh. Not a scan, exact CAD replica, official Namco asset or real weapon design."
+    },
+    "namco-gun-pink": {
+      "name": "Pink Namco-style handgun",
+      "original_author": "Martoscar",
+      "colour_variant_by": "Thatcher Productions",
+      "license": "CC-BY-4.0",
+      "source": "https://sketchfab.com/3d-models/namco-arcade-gun-15fbd5b9add94a34b5c21746e3dd32be",
+      "source_asset_sha256": "4a8231dcc6ba717d61ab5783156c3a0d0367572ddb54537b0b283415da12fab8",
+      "sha256": "86fe894e3435d975e375ea62f48216c3b9e325723fcea8a39020f7267c2493b6",
+      "vertices": 13149,
+      "triangles": 17108,
+      "recoloured_pixels": 542745,
+      "muzzle_m": [
+        0.0,
+        0.05406942591071129,
+        -0.17375099658966064
+      ],
+      "modifications": "Only blue shell texels recoloured pink; original geometry, UVs, normals, muzzle and neutral/metal pixels preserved."
+    }
+  },
+  "shotgun_gameplay": "Not enabled by asset generation; requires real damage integration."
+}
