@@ -1,0 +1,105 @@
+name: Finish Enhanced cover selector safely
+on:
+  push:
+    branches: [feat/quest-weapons-4]
+    paths: [.github/workflows/finish-enhanced-cover.yml]
+permissions:
+  contents: write
+concurrency:
+  group: enhanced-cover-source
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Recover exact interrupted patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          pending=[];seen=set()
+          for part in 'abc':
+              payload=json.loads(Path(f'.review/enhanced-cover-{part}.json').read_text())
+              assert payload['base']=='62ea3e99533737b5c914090ac181d1971b2e7b31'
+              for item in payload['changes']:
+                  p=Path(item['path'])
+                  assert not p.is_absolute() and '..' not in p.parts and str(p) not in seen
+                  assert p.parts[0] in ('quest','tests','docs') or str(p) in ('README.md','NOTICE.md')
+                  seen.add(str(p));old=p.read_bytes() if p.exists() else b''
+                  assert (hashlib.sha256(old).hexdigest() if p.exists() else None)==item['old'],str(p)
+                  lines=old.decode().splitlines(keepends=True)
+                  for a,b,text in reversed(item['edits']):lines[a:b]=text.splitlines(keepends=True)
+                  new=''.join(lines).encode();assert hashlib.sha256(new).hexdigest()==item['new'],str(p)
+                  pending.append((p,new))
+          assert len(pending)==19,len(pending)
+          for p,data in pending:p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+          Path('cover-source-manifest.json').write_text(json.dumps({str(p):hashlib.sha256(b).hexdigest() for p,b in pending},indent=2)+'\n')
+          PY
+          git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install development dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc cmake ninja-build unzip wget libegl-dev libgles-dev libsdl2-dev libopenxr-dev libegl-mesa0 libgl1-mesa-dri
+      - name: Test real firing, cover controls and stereo UI
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p build/cover-check
+          python3 tests/test_weapon_hooks.py 2>&1 | tee build/cover-check/hooks.log
+          python3 tests/test_quest_candidate.py --out build/cover-check 2>&1 | tee build/cover-check/host.log
+      - name: Check changed production objects on Android ARM64
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/sdl .tools/openxr
+          wget -q -O /tmp/ndk.zip https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q /tmp/ndk.zip -d .tools
+          mv .tools/android-ndk-r29 .tools/ndk
+          grep -q '29.0.14206865' .tools/ndk/source.properties
+          rm /tmp/ndk.zip
+          wget -q -O /tmp/sdl.zip https://github.com/libsdl-org/SDL/releases/download/release-2.30.11/SDL2-2.30.11.zip
+          unzip -q /tmp/sdl.zip -d .tools/sdl
+          wget -q -O /tmp/xr.aar https://repo.maven.apache.org/maven2/org/khronos/openxr/openxr_loader_for_android/1.1.43/openxr_loader_for_android-1.1.43.aar
+          unzip -q /tmp/xr.aar -d .tools/openxr
+          cmake -S quest -B build/native -G Ninja -DTC2_CORE_ONLY=ON -DCMAKE_TOOLCHAIN_FILE="$PWD/.tools/ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release > build/cover-check/configure.log 2>&1
+          python3 - <<'PY' 2>&1 | tee build/cover-check/android.log
+          import subprocess
+          wanted={'quest_host.c','quest_ui.c','quest_options.c','crisis_zone_weapons.c'}
+          targets=subprocess.check_output(['ninja','-C','build/native','-t','targets','all'],text=True)
+          selected=[x.split(': ',1)[0] for x in targets.splitlines() if 'crisiszone_core.dir/' in x and any(x.split(': ',1)[0].endswith('/'+n+'.o') for n in wanted)]
+          assert len(selected)==len(wanted),selected
+          subprocess.run(['ninja','-C','build/native','-j','2',*selected],check=True)
+          PY
+      - name: Commit validated source without modifying main or building APK
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/feat/quest-weapons-4 | cut -f1)" = "$GITHUB_SHA"
+          git config user.name 'Thatcher productions'
+          git config user.email '45753033+nsw27@users.noreply.github.com'
+          git add NOTICE.md README.md docs quest tests
+          git rm .review/enhanced-cover-{a,b,c}.json .github/workflows/finish-enhanced-cover.yml
+          git diff --cached --check
+          git commit -m 'Enable Enhanced weapons by default with cover-only selector and retained original credits'
+          git push origin HEAD:feat/quest-weapons-4
+          git rev-parse HEAD > cover-source-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enhanced-cover-verification
+          path: |
+            cover-source-manifest.json
+            cover-source-commit.txt
+            build/cover-check/*.log
+            build/cover-check/*.json
+            build/cover-check/*.ppm
+          if-no-files-found: warn
+          retention-days: 14
