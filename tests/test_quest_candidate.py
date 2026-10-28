@@ -17,10 +17,11 @@ def test(name,sources,extra=(),links=(),capture=False):
     run(['gcc',*flags,*extra,*[ROOT/s for s in sources],'-Wl,--gc-sections',*libs,*links,'-lm','-o',exe])
     with tempfile.TemporaryDirectory(dir=a.out,prefix=name+'-') as tmp:
         output=run([exe,ROOT] if name=='graphics' else [exe],cwd=tmp,capture_output=capture)
-        if name in ('graphics','weapon-selector'):
+        if name in ('graphics','weapon-selector','goggle-border'):
             import shutil
             for img in Path(tmp).glob('*.ppm'):shutil.copy2(img,a.out/img.name)
     results[name]='passed';return output
+test('goggle-border',['tests/quest_goggle_fixture.c','quest/quest_options.c'],[],['-lGLESv2','-lEGL'])
 test('weapon-stick',['tests/quest_weapon_stick_fixture.c','quest/quest_options.c'])
 test('weapon-policy',['tests/quest_weapon_rules_fixture.c','quest/crisis_zone_weapons.c'])
 test('gpu-query-protocol',['tests/quest_gpu_timer_fixture.c'])

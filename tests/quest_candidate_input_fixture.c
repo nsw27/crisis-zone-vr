@@ -262,6 +262,10 @@ int main(void){
     options_page=QOPTIONS_PAGE_HANDLING;menu_selected=3;adjust_horizontal(1);assert(!options.expanded_weapons);
     adjust_horizontal(1);qoptions_load(options_path,&saved);assert(saved.expanded_weapons);
     reset_page_setting();qoptions_load(options_path,&saved);assert(saved.expanded_weapons);
+    menu_selected=5;assert(options.view_border==0);
+    adjust_horizontal(1);assert(options.view_border==1);adjust_horizontal(1);assert(options.view_border==2);
+    qoptions_load(options_path,&saved);assert(saved.view_border==2);adjust_horizontal(1);assert(options.view_border==0);
+    adjust_horizontal(-1);assert(options.view_border==2);reset_page_setting();assert(options.view_border==0);
     /* Direction controls in the real host: each cardinal axis, diagonals,
      * no auto-repeat, menu/reconnect rearming, replay and disabled mode. */
     paused=false;focused=running=origin_set=true;test_scene_panel=false;

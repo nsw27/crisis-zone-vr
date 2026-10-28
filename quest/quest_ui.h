@@ -16,3 +16,6 @@ void qui_set_pointer(float x,float y,bool visible);
 /* Informational cover-only selector. Never changes aiming or game state. */
 void qui_weapons_update(const QWeapons *state,bool visible);
 void qui_draw_weapons(const float view[16],const float projection[16],V3 head,Q4 rotation);
+
+/* Head-relative presentation only; does not change FOV, aiming or game state. */
+void qui_draw_border(const float projection[16],Q4 eye_to_head,int mode);

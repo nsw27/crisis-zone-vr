@@ -47,11 +47,18 @@ not an independent cosmetic counter. The selected ammunition value is still
 consumed/displayed by the original arcade game.
 
 The requested **three-shell shotgun** is the design target, not a playable weapon
-in this revision. Its real damage/hit processing, model and firing recovery must
+in this revision. Its real damage/hit processing and firing recovery must
 be implemented and verified before it appears in the selector. This does not
 claim to reproduce Time Crisis 3's special-ammunition pickups or exact loadout.
-The turquoise cabinet-gun replacement and optional goggles also remain separate
-pending work. Pop-in and the arcade's hittable region are not changed here.
+The source now loads a new turquoise cabinet-inspired machine gun and a pink
+variant of the original Namco pistol. The orange shotgun prop is prepared, not
+yet playable. See `ARCADE_WEAPON_COLOURS.md` for asset provenance.
+
+**Handling > View border: Off / Soft fade / Goggles** adds optional peripheral
+presentation without changing aim, camera projection, the constant aiming dot or
+shield mechanics. It defaults OFF, applies immediately and saves. It is hidden
+for paused menus and arcade title/selection panels. See `GOGGLE_BORDER.md`.
+Pop-in and the arcade's hittable region are not changed here.
 
 ## Branding and installation
 

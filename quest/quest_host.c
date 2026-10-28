@@ -899,6 +899,10 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
+            if(focused&&!paused&&!qvr_scene_is_panel()&&options.view_border){
+                Q4 eye_to_head=product(conjugate(relative_rotation(views[0].pose.orientation)),relative_rotation(views[i].pose.orientation));
+                qui_draw_border(p[i],eye_to_head,options.view_border);
+            }
             if(focused&&!paused&&weapon_select_visible){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 qui_draw_weapons(v[i],p[i],head,relative_rotation(views[0].pose.orientation));

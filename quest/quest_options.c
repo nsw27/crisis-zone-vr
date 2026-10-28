@@ -21,15 +21,15 @@ void qoptions_load(const char *path,QOptions *options){
             case 2:options->two_hand=v!=0;break;case 3:options->cover_toggle=v!=0;break;
             case 4:options->diagnostics=v!=0;break;case 5:options->scene_trace=v!=0;break;case 6:options->edge_smoothing=v!=0;break;case 7:options->expanded_weapons=v!=0;break;}
         }
-        const char *extra_keys[]={"haptics=","recoil_strength=","refresh_preset=","muzzle_flash="};
-        int limits[]={100,100,3,1};
-        for(int k=0;k<4;k++){
+        const char *extra_keys[]={"haptics=","recoil_strength=","refresh_preset=","muzzle_flash=","view_border="};
+        int limits[]={100,100,3,1,2};
+        for(int k=0;k<5;k++){
             size_t n=strlen(extra_keys[k]);if(strncmp(line,extra_keys[k],n))continue;
             char *end;errno=0;long v=strtol(line+n,&end,10);
             if(end==line+n||errno||v<0||v>limits[k])continue;
             while(isspace((unsigned char)*end))end++;if(*end)continue;
             if(k==0)options->haptics=(int)v;else if(k==1)options->recoil_strength=(int)v;
-            else if(k==2)options->refresh_preset=(int)v;else options->muzzle_flash=v!=0;
+            else if(k==2)options->refresh_preset=(int)v;else if(k==3)options->muzzle_flash=v!=0;else options->view_border=(int)v;
         }
         if(!strncmp(line,"resolution=",11)){
             char *end;errno=0;long preset=strtol(line+11,&end,10);
@@ -96,6 +96,7 @@ bool qoptions_save(const char *path,const QOptions *options){
     if(fprintf(f,"scene_density=%d\ndepth_correction=%d\ntwo_hand=%d\ncover_toggle=%d\ndiagnostics=%d\nscene_trace=%d\n",
        options->scene_density,options->depth_correction,options->two_hand,options->cover_toggle,options->diagnostics,options->scene_trace)<0)ok=false;
     if(fprintf(f,"edge_smoothing=%d\nexpanded_weapons=%d\n",options->edge_smoothing?1:0,options->expanded_weapons?1:0)<0)ok=false;
+    if(fprintf(f,"view_border=%d\n",options->view_border)<0)ok=false;
     if(fclose(f))ok=false;
     return ok;
 }

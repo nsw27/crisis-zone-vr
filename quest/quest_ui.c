@@ -109,6 +109,7 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
         snprintf(rows[2],40,"RECENTER / CALIBRATE HEIGHT");
         snprintf(rows[3],40,"EXPANDED WEAPONS: %s",o->expanded_weapons?"ON":"OFF");
         snprintf(rows[4],40,"SCENE TRACE: %s",o->scene_trace?"CAPTURING":"OFF");
+        snprintf(rows[5],40,"VIEW BORDER: %s",o->view_border==2?"GOGGLES":o->view_border==1?"SOFT FADE":"OFF");
     }
     for(int i=0;i<count;i++){int y=qmenu_row_y(page,i);bool chosen=i==qvr_menu_selected();if(chosen)highlight(y-4,28);text(24,y,rows[i],chosen?255:220,chosen?220:230,chosen?100:240);text(536,y,"-",255,220,100);text(596,y,"+",255,220,100);}
     if(page==QOPTIONS_PAGE_GRAPHICS){
@@ -119,8 +120,10 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
         else if(qvr_menu_selected()==6)note="GPU TIME ONLY WHEN SUPPORTED";
         text(24,298,note,255,202,110);
     }else if(page==QOPTIONS_PAGE_HANDLING){
-        text(24,274,"TWO HANDS: OFF-HAND GRIP SUPPORTS",181,207,220);
-        text(24,298,o->expanded_weapons?"IN COVER: RIGHT STICK SWITCHES GUN":"WEAPON-HAND GRIP CONTROLS COVER",255,202,110);
+        const char *hint=qvr_menu_selected()==5?"BORDER ONLY - NOT A POP-IN FIX":
+            qvr_menu_selected()==0?"TWO HANDS: OFF-HAND GRIP SUPPORTS":
+            o->expanded_weapons?"IN COVER: RIGHT STICK SWITCHES GUN":"WEAPON-HAND GRIP CONTROLS COVER";
+        text(24,298,hint,255,202,110);
     }
     text(24,326,"POINT + TRIGGER: SELECT / - / +",181,207,220);
     text(24,352,"LEFT STICK: SELECT / CHANGE PAGE",181,207,220);
@@ -149,7 +152,7 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
     if(!program)return;
     GLint bound,unit;glGetIntegerv(GL_ACTIVE_TEXTURE,&unit);glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glBindTexture(GL_TEXTURE_2D,texture);
     int state=(options->physical_crouch?1:0)|(options->laser_enabled?2:0)|(saved?4:0)|(options->left_handed?8:0)|(options->tracer_enabled?16:0)|(page<<8)|(options->texture_filtering?64:0)|(options->machine_gun?128:0)|(options->muzzle_flash?2048:0);
-    int enhancements=options->scene_density|(options->depth_correction<<3)|(options->two_hand<<4)|(options->cover_toggle<<5)|(options->diagnostics<<6)|(options->scene_trace<<7)|(options->edge_smoothing<<8)|(options->expanded_weapons<<9);
+    int enhancements=options->scene_density|(options->depth_correction<<3)|(options->two_hand<<4)|(options->cover_toggle<<5)|(options->diagnostics<<6)|(options->scene_trace<<7)|(options->edge_smoothing<<8)|(options->expanded_weapons<<9)|(options->view_border<<10);
     if(last_enhancements!=enhancements||last_selected!=qvr_menu_selected()||last_haptics!=options->haptics||last_recoil!=options->recoil_strength||last_refresh!=options->refresh_preset||last_state!=state||last_pitch!=options->gun_pitch||last_scale!=options->world_scale||last_distance!=options->view_distance||last_y!=options->gun_offset_y_mm||last_z!=options->gun_offset_z_mm||last_player!=options->player_side||last_boot!=boot_side||last_resolution!=options->resolution){
         last_enhancements=enhancements;last_selected=qvr_menu_selected();last_haptics=options->haptics;last_recoil=options->recoil_strength;last_refresh=options->refresh_preset;
         panel(options,page,boot_side,saved);last_resolution=options->resolution;last_pitch=options->gun_pitch;last_scale=options->world_scale;last_distance=options->view_distance;
@@ -172,4 +175,5 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
 
 #include "quest_metrics.inc"
 #include "quest_weapon_selector.inc"
-void qui_shutdown(void){weapon_selector_shutdown();cursor_x=cursor_y=-10;glDeleteTextures(1,&metrics_texture);metrics_texture=0;metrics_dirty=true;glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}
+#include "quest_goggle_border.inc"
+void qui_shutdown(void){border_shutdown();weapon_selector_shutdown();cursor_x=cursor_y=-10;glDeleteTextures(1,&metrics_texture);metrics_texture=0;metrics_dirty=true;glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}

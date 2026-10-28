@@ -14,7 +14,8 @@ static void adjust_horizontal(int direction){
         else if(menu_selected==1){options.cover_toggle=!options.cover_toggle;reset_fire_input();}
         else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;reset_fire_input();}
         else if(menu_selected==3){options.expanded_weapons=!options.expanded_weapons;csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);reset_fire_input();}
-        else{options.scene_trace=!options.scene_trace;qvr_trace_set(options.scene_trace);}
+        else if(menu_selected==4){options.scene_trace=!options.scene_trace;qvr_trace_set(options.scene_trace);}
+        else{options.view_border=(options.view_border+direction+3)%3;}
         save_comfort();
     }else if(options_page==1){
         if(menu_selected==0)set_gun_offset(true,options.gun_offset_y_mm+direction*QOPTIONS_GUN_OFFSET_STEP);
@@ -46,7 +47,8 @@ static void reset_page_setting(void){
         else if(menu_selected==1)options.cover_toggle=false;
         else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;}
         else if(menu_selected==3){options.expanded_weapons=true;csz_weapons_configure(!replay_input,!options.machine_gun);}
-        else{options.scene_trace=false;qvr_trace_set(false);qvr_trace_flush();}
+        else if(menu_selected==4){options.scene_trace=false;qvr_trace_set(false);qvr_trace_flush();}
+        else options.view_border=0;
         reset_fire_input();save_comfort();
     }else if(options_page==1){
         if(menu_selected==0)set_gun_offset(true,0);else if(menu_selected==1)set_gun_offset(false,0);

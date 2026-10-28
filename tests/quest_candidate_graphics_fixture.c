@@ -40,6 +40,12 @@ int main(int argc,char **argv){
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
     assert(image_hash()!=before_mode);o.expanded_weapons=false;
+    selected=5;
+    for(int mode=0;mode<3;mode++){
+        unsigned long before=image_hash();o.view_border=mode;
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
+        assert(image_hash()!=before);
+    }
     /* Render pixel-aligned panel: both actual page buttons must be visible,
      * including when the bundled font has no less/greater-than glyphs. */
     float av[16]={0},ap[16]={0};av[0]=av[5]=av[10]=av[15]=1;
@@ -74,5 +80,6 @@ int main(int argc,char **argv){
         }
     }
     qgun_shutdown();qui_shutdown();eglMakeCurrent(d,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);eglDestroyContext(d,c);eglDestroySurface(d,s);eglTerminate(d);
-    puts("PASS: all 24 menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors");return 0;
+    int rows=0;for(int page=0;page<QOPTIONS_PAGE_COUNT;page++)rows+=qoptions_row_count(page);
+    printf("PASS: all %d menu rows in both stereo eyes, selection invalidation, both weapon meshes, missing-model fallback, muzzle transforms and GLES errors\n",rows);return 0;
 }
