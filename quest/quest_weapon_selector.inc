@@ -47,20 +47,19 @@ static void weapon_strip_text(int x,int y,const char *s,bool small,uint8_t r,uin
 static void weapon_selector_upload(void){
     weapon_strip_rect(0,0,640,128,10,18,25);
     weapon_strip_text(112,7,"IN COVER - SELECT WEAPON",false,220,230,240);
-    /* Only implemented weapons are advertised. A later shotgun needs real
-     * damage/asset integration before it becomes a selectable card. */
+    /* Shell counts are policy state, not the three native pellet dispatches. */
     for(int i=0;i<QWEAPON_COUNT;i++){
-        int x=16+i*312;bool chosen=i==weapon_selector_requested;
+        int x=12+i*208;bool chosen=i==weapon_selector_requested;
         const uint8_t *colour=q_arcade_weapon_colours[i];
-        weapon_strip_rect(x,30,296,74,colour[0],colour[1],colour[2]);
-        weapon_strip_rect(x+2,32,292,70,chosen?28:14,chosen?37:25,chosen?48:32);
+        weapon_strip_rect(x,30,200,74,colour[0],colour[1],colour[2]);
+        weapon_strip_rect(x+2,32,196,70,chosen?28:14,chosen?37:25,chosen?48:32);
         if(chosen)weapon_strip_rect(x+7,36,4,60,255,235,150);
-        weapon_strip_text(x+12,39,i==QWEAPON_MACHINE_GUN?"MACHINE GUN":"HANDGUN",false,colour[0],colour[1],colour[2]);
+        weapon_strip_text(x+12,39,i==QWEAPON_MACHINE_GUN?"MACHINE GUN":i==QWEAPON_HANDGUN?"HANDGUN":"SHOTGUN",false,colour[0],colour[1],colour[2]);
         char rounds[32];snprintf(rounds,sizeof rounds,"%d / %d",weapon_selector_ammo[i],qweapons_capacity((QWeapon)i));
         weapon_strip_text(x+12,62,rounds,false,220,230,240);
         const char *status=chosen&&weapon_selector_selected!=weapon_selector_requested?"SWITCHING...":
-            weapon_selector_ammo[i]==0?"EMPTY - COVER RELOAD REQUIRED":
-            i==QWEAPON_MACHINE_GUN?"HOLD TRIGGER: AUTOMATIC":"FRESH TRIGGER: SINGLE SHOT";
+            weapon_selector_ammo[i]==0?"EMPTY - RELOAD IN COVER":
+            i==QWEAPON_MACHINE_GUN?"HOLD: AUTOMATIC":i==QWEAPON_HANDGUN?"PRESS: SINGLE SHOT":"PRESS: 3-PELLET SHELL";
         weapon_strip_text(x+12,86,status,true,chosen?255:181,chosen?222:207,chosen?106:220);
     }
     weapon_strip_text(56,112,"RIGHT STICK: UP/RIGHT NEXT - DOWN/LEFT PREVIOUS",true,181,207,220);

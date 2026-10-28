@@ -91,7 +91,7 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
     }else if(page==1){
         snprintf(rows[0],40,"GUN UP: %+d MM",o->gun_offset_y_mm);
         snprintf(rows[1],40,"GUN BACK: %+d MM",o->gun_offset_z_mm);
-        snprintf(rows[2],40,"%s: %s",o->expanded_weapons?"WEAPON":"MODEL",o->machine_gun?"MACHINE GUN":o->expanded_weapons?"HANDGUN / 12":"PISTOL");
+        snprintf(rows[2],40,"%s: %s",o->expanded_weapons?"WEAPON":"MODEL",o->expanded_weapons&&o->shotgun?"SHOTGUN / 3":o->machine_gun?"MACHINE GUN":o->expanded_weapons?"HANDGUN / 12":"PISTOL");
         snprintf(rows[3],40,"VISUAL RECOIL: %d%%",o->recoil_strength);
         snprintf(rows[4],40,"CONTROLLER RUMBLE: %d%%",o->haptics);
         snprintf(rows[5],40,"MUZZLE FLASH: %s",o->muzzle_flash?"ON":"OFF");

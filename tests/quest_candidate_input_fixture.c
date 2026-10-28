@@ -4,6 +4,7 @@
 #undef main
 unsigned char tc2_ram[0x1000000];
 static QGunKind test_model;
+static bool test_shotgun_available;
 static bool test_scene_panel;
 bool qvr_scene_is_panel(void){return test_scene_panel;}
 int tc2_depth_mode;
@@ -12,7 +13,7 @@ void qvr_trace_flush(void){}
 static int test_density=100,test_smoothing;
 void qtc2_set_edge_smoothing(int on){test_smoothing=on!=0;}
 void qtc2_set_scene_percent(int p){test_density=p;}
-bool qgun_available(QGunKind k){return k==QGUN_PISTOL||k==QGUN_MACHINE_GUN;}
+bool qgun_available(QGunKind k){return k==QGUN_PISTOL||k==QGUN_MACHINE_GUN||(k==QGUN_SHOTGUN&&test_shotgun_available);}
 void qgun_select(QGunKind k){test_model=k;}
 int main(void){
 
@@ -311,7 +312,52 @@ int main(void){
     stick_x=stick_y=0;sync_input(103,true,1.7f);assert(pedal==1&&!weapon_select_visible);
     sync_input(104,true,1.0f);assert(pedal==0&&weapon_select_visible);
     stick_x=-1;sync_input(105,true,1.0f);assert(options.machine_gun!=selected_before);
+    /* Full three-weapon integration uses the same production input path.
+     * Earlier tests intentionally omit the optional mesh to test fallback. */
+    test_shotgun_available=true;test_scene_panel=false;paused=false;focused=running=origin_set=true;
+    connected[0]=connected[1]=tracked[0]=tracked[1]=trigger_active[0]=trigger_active[1]=true;
+    options.expanded_weapons=true;options.physical_crouch=options.cover_toggle=false;
+    options.two_hand=true;options.left_handed=false;choose_weapon(QWEAPON_MACHINE_GUN);
+    stick_active=true;stick_x=stick_y=0;triggers[0]=triggers[1]=grips[0]=grips[1]=0;
+    select_weapon_hand(RIGHT_HAND);reset_input_edges();
+    TEST_W32(0x803ba3f4,0x80549844);TEST_W32(0x803ba3f8,0x805495a0);
+    TEST_W32(0x80549844,3);TEST_W32(0x80549874,0);TEST_W32(0x80549848,40);
+    csz_weapons_init(0x80549844);apply_weapon_model();tick();csz_weapons_begin(0x803b4e00);tick();
+    assert(pedal==0&&weapon_select_visible&&chosen_weapon()==QWEAPON_MACHINE_GUN);
+    /* Up selects handgun; right selects shotgun; held directions do not cycle. */
+    stick_y=1;tick();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_HANDGUN&&test_model==QGUN_PISTOL&&csz_weapons_state()->ammo[1]==12&&pedal==0);
+    stick_y=0;tick();stick_x=1;tick();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_SHOTGUN&&test_model==QGUN_SHOTGUN&&csz_weapons_state()->ammo[2]==3&&pedal==0);
+    for(int i=0;i<30;i++)tick();assert(chosen_weapon()==QWEAPON_SHOTGUN&&pedal==0);
+    /* Exposed stick movement cannot switch. The existing support grip remains
+     * reserved, so the pistol/shotgun cannot accidentally change shield state. */
+    stick_x=0;tick();grips[RIGHT_HAND]=1;tick();assert(pedal==1&&!weapon_select_visible);
+    stick_y=-1;tick();assert(chosen_weapon()==QWEAPON_SHOTGUN);
+    triggers[RIGHT_HAND]=1;tick();assert(csz_weapons_pending()&&(arcade_bits&0x10));
+    TEST_W32(0x80549848,2);TEST_W32(0x803ba3fc,15);csz_weapons_accepted(0x80549844);
+    assert(!csz_weapons_pending()&&csz_weapons_state()->ammo[2]==2&&!csz_weapons_state()->fault);
+    assert(csz_weapons_feedback()&&!csz_weapons_feedback());
+    for(int i=0;i<40;i++){tick();csz_weapons_begin(0x803b4e00);assert(!csz_weapons_pending());}
+    grips[RIGHT_HAND]=0;tick();assert(pedal==0&&chosen_weapon()==QWEAPON_SHOTGUN);
+    /* Returning to cover with stick already held requires neutral first. */
+    tick();assert(chosen_weapon()==QWEAPON_SHOTGUN);
+    stick_y=0;tick();stick_x=-1;tick();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_HANDGUN&&pedal==0);
+    stick_x=0;tick();stick_y=-1;tick();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_MACHINE_GUN&&csz_weapons_state()->ammo[0]==40);
+    stick_y=0;tick();stick_x=-1;tick();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_SHOTGUN&&csz_weapons_state()->ammo[2]==2&&pedal==0);
+    assert(qoptions_save(options_path,&options));qoptions_load(options_path,&saved);
+    assert(saved.shotgun&&!saved.machine_gun&&saved.expanded_weapons);
+    /* Saved explicit OFF remains OFF and the missing-asset path safely falls
+     * back; it never exposes a working-looking but unavailable shotgun. */
+    options.expanded_weapons=false;apply_weapon_model();csz_weapons_begin(0x803b4e00);
+    assert(chosen_weapon()==QWEAPON_MACHINE_GUN&&!options.shotgun&&csz_weapons_state()->ammo[0]==40);
+    assert(qoptions_save(options_path,&options));qoptions_load(options_path,&saved);assert(!saved.expanded_weapons);
+    options.expanded_weapons=true;choose_weapon(QWEAPON_SHOTGUN);test_shotgun_available=false;apply_weapon_model();
+    assert(chosen_weapon()==QWEAPON_MACHINE_GUN&&test_model==QGUN_MACHINE_GUN);
     #undef TEST_W32
-    puts("PASS: original controls and feedback; optional 12-round host mode, cover-only four-direction neutral-rearmed selection, HUD gating, unchanged cover/aim, no held-trigger shots, action/focus recovery and persistence");
+    puts("PASS: original controls and feedback; three-shell shotgun/12-round handgun host integration, missing-mesh fallback, cover-only four-direction neutral-rearmed selection, HUD gating, unchanged cover/aim, no held-trigger shots, action/focus recovery and persistence");
     return 0;
 }

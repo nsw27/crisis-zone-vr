@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Instrument six documented CSZO4 Ver. B instruction sites, into build output.
+"""Instrument guarded CSZO4 Ver. B weapon and native hit-dispatch sites.
 
 The generated upstream inputs remain unchanged. Fail closed on any source drift.
 No ROM, binary image or game assets are read or written by this tool.
@@ -16,10 +16,16 @@ SOURCE_HASHES = {
 }
 PATCHES = {
     '00': [
+        ('  A_END_80006B70: ;', '  A_END_80006B70: ; RS8(0x10, (uint64_t)(int64_t)csz_weapons_hit_axis((uint32_t)RG4(0xFC),0,(int32_t)RG4(0x14)));'),
+        ('  A_END_80006B74: ;', '  A_END_80006B74: ; RS8(0x18, (uint64_t)(int64_t)csz_weapons_hit_axis((uint32_t)RG4(0xFC),1,(int32_t)RG4(0x1C)));'),
         ('A_80004BD0: RR_INS(0x80004BD0U);',
          'A_80004BD0: { uint32_t w_ = csz_weapons_filter((uint32_t)RG4(0x24)); if(w_ != (uint32_t)RG4(0x24)) RS8(0x20,w_); } RR_INS(0x80004BD0U);'),
     ],
     '08': [
+        ('A_800950A4: RR_INS(0x800950A4U);', 'A_800950A4: ; csz_weapons_hit_begin(); RR_INS(0x800950A4U);'),
+        ('A_800950BC: RR_INS(0x800950BCU);', 'A_800950BC: { uint32_t w_ = csz_weapons_hit_flags((uint32_t)RG4(0x14)); if(w_ != (uint32_t)RG4(0x14)) RS8(0x10,(uint64_t)(int64_t)(int32_t)w_); } RR_INS(0x800950BCU);'),
+        ('A_800950D8: RR_INS(0x800950D8U);', 'A_800950D8: ; csz_weapons_hit_complete(); RR_INS(0x800950D8U);'),
+        ('A_800950F0: RR_INS(0x800950F0U);', 'A_800950F0: ; csz_weapons_hit_end(); RR_INS(0x800950F0U);'),
         ('  A_END_80090968: ;', '  A_END_80090968: ; csz_weapons_init((uint32_t)RG4(0x24));'),
         ('  A_END_800913F8: ;', '  A_END_800913F8: ; csz_weapons_reset((uint32_t)RG4(0x1C));'),
         ('  A_END_800914A0: ;', '  A_END_800914A0: ; csz_weapons_reload((uint32_t)RG4(0x14));'),

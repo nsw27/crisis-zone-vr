@@ -58,6 +58,13 @@ int main(void){
     unsigned long empty=picture();
     for(int i=0;i<20;i++){qui_weapons_update(&s,true);clear();qui_draw_weapons(v,p,head,rot);assert(picture()==empty);}
     assert(full_uploads==1&&small_uploads==4);
+    s.requested=QWEAPON_SHOTGUN;qui_weapons_update(&s,true);clear();qui_draw_weapons(v,p,head,rot);
+    assert(small_uploads==5);unsigned long queued_shotgun=picture();
+    s.selected=QWEAPON_SHOTGUN;s.ammo[2]=2;qui_weapons_update(&s,true);clear();qui_draw_weapons(v,p,head,rot);
+    assert(small_uploads==6&&picture()!=queued_shotgun);
+    s.ammo[2]=0;qui_weapons_update(&s,true);clear();qui_draw_weapons(v,p,head,rot);assert(small_uploads==7);
+    /* The orange card has its own label/count and fits inside the real strip. */
+    assert(WEAPON_STRIP_W==640&&QWEAPON_COUNT==3);
     /* Invalid/unavailable states are hidden, never clamped into made-up ammo. */
     for(int i=0;i<6;i++){
         QWeapons bad=s;if(i==0)bad.ready=false;if(i==1)bad.enabled=false;if(i==2)bad.fault=true;
@@ -66,7 +73,7 @@ int main(void){
     }
     qui_weapons_update(NULL,true);clear();qui_draw_weapons(v,p,head,rot);assert(picture()==blank);
     /* Direct texture preview uses the same production raster, not a mockup. */
-    s.ammo[1]=12;qui_weapons_update(&s,true);qui_draw_weapons(v,p,head,rot);
+    s.ammo[1]=12;s.ammo[2]=3;qui_weapons_update(&s,true);qui_draw_weapons(v,p,head,rot);
     FILE *out=fopen("cover-selector.ppm","wb");assert(out);fprintf(out,"P6\n640 128\n255\n");
     for(int i=0;i<640*128;i++)fwrite(weapon_selector_pixels+4*i,1,3,out);fclose(out);
     qui_shutdown();assert(!weapon_selector_texture&&!weapon_selector_visible);

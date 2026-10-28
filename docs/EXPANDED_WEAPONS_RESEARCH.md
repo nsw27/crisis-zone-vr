@@ -1,8 +1,13 @@
-# Optional expanded weapons: first implementation
+# Expanded weapons: initial implementation and subsequent shotgun pass
 
 Base: Preview 3 source `635d49de35e00eaa43d359c937bd400c0f2969db`.
 Status: isolated source candidate. Automated synthetic integration tests are not
 full-game/headset tests. No new APK is included in this source change.
+
+**Follow-on source candidate:** the three-shell orange shotgun now uses three
+short-staggered ordinary hit dispatches per shell. See `SHOTGUN_TRIANGLE.md` for
+the native hook sites, timing, tests and explicit damage-validation limits. The
+handgun-only implementation described below is retained as historical research.
 
 ## Player-facing change
 
@@ -93,7 +98,7 @@ Run `python tests/test_weapon_hooks.py` for the lifted comparison and
 `python tests/test_quest_candidate.py` for the combined host/graphics suite.
 The latter needs the documented Linux SDL2/EGL/GLES/OpenXR headers and a JDK.
 
-## Not implemented by this revision
+## Not implemented by the original handgun-only revision (historical)
 
 Shotgun, increased damage, pellet spread, a new handgun animation/sound, turquoise
 cabinet gun replacement, goggle/vignette border, wider hit testing and activation

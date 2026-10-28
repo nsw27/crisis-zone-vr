@@ -39,20 +39,18 @@ remains available when disabled. No diagnostics are needed to play.
 
 ## Available mechanics versus planned work
 
-The current source implements the original machine gun and a **12-round,
-single-shot-per-press handgun**. Each retains its own magazine and cooldown.
-Switching never refills ammunition; the original cover reload event remains
-authoritative. The strip reads the same policy state as those confirmed events,
-not an independent cosmetic counter. The selected ammunition value is still
-consumed/displayed by the original arcade game.
+The source now implements the original turquoise machine gun, the **12-round
+single-shot pink handgun**, and an **orange three-shell shotgun**. A shotgun shell
+uses three ordinary native hit rays in a triangle, separated by two original
+weapon-update ticks. One confirmed shell costs one round and one feedback event.
+The actual enemy damage/collision rules are retained; threefold damage against
+every target is not guaranteed. This is not headset-tested gameplay.
 
-The requested **three-shell shotgun** is the design target, not a playable weapon
-in this revision. Its real damage/hit processing and firing recovery must
-be implemented and verified before it appears in the selector. This does not
-claim to reproduce Time Crisis 3's special-ammunition pickups or exact loadout.
-The source now loads a new turquoise cabinet-inspired machine gun and a pink
-variant of the original Namco pistol. The orange shotgun prop is prepared, not
-yet playable. See `ARCADE_WEAPON_COLOURS.md` for asset provenance.
+Each weapon retains its magazine and cooldown. Switching never refills ammo; the
+original cover reload event remains authoritative. The selector and original
+ammunition display reflect accepted game events rather than a cosmetic counter.
+See `SHOTGUN_TRIANGLE.md` for timing, safeguards and the testing boundary, and
+`ARCADE_WEAPON_COLOURS.md` for asset provenance.
 
 **Handling > View border: Off / Soft fade / Goggles** adds optional peripheral
 presentation without changing aim, camera projection, the constant aiming dot or
@@ -84,5 +82,6 @@ stereo selector raster. Its texture uploads only on state changes, not per eye.
 
 `tests/test_weapon_hooks.py` still executes the extracted original firing/reload
 functions using synthetic memory/input; 640 mode-OFF updates are compared with
-the uninstrumented functions. No new damage hook or headset-performance result
-is claimed. Normal headset play is still needed to assess readability/comfort.
+the uninstrumented functions. The additional native ray-dispatch hooks are covered by `test_shotgun_dispatch.py`;
+its final collision consumer is recorded, not a real-enemy damage test. No
+headset-performance result is claimed. Normal headset play is still needed to assess readability/comfort.

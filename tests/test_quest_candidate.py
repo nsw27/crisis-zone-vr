@@ -24,6 +24,7 @@ def test(name,sources,extra=(),links=(),capture=False):
 test('goggle-border',['tests/quest_goggle_fixture.c','quest/quest_options.c'],[],['-lGLESv2','-lEGL'])
 test('weapon-stick',['tests/quest_weapon_stick_fixture.c','quest/quest_options.c'])
 test('weapon-policy',['tests/quest_weapon_rules_fixture.c','quest/crisis_zone_weapons.c'])
+test('pellet-policy',['tests/quest_pellet_policy_fixture.c'])
 test('gpu-query-protocol',['tests/quest_gpu_timer_fixture.c'])
 test('support',['tests/quest_support_fixture.c','quest/quest_options.c'])
 test('trace',['tests/quest_trace_fixture.c','quest/tc2_scene.c'])

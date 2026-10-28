@@ -13,7 +13,7 @@ static void adjust_horizontal(int direction){
         if(menu_selected==0){options.two_hand=!options.two_hand;reset_fire_input();}
         else if(menu_selected==1){options.cover_toggle=!options.cover_toggle;reset_fire_input();}
         else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;reset_fire_input();}
-        else if(menu_selected==3){options.expanded_weapons=!options.expanded_weapons;csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);reset_fire_input();}
+        else if(menu_selected==3){options.expanded_weapons=!options.expanded_weapons;apply_weapon_model();reset_fire_input();}
         else if(menu_selected==4){options.scene_trace=!options.scene_trace;qvr_trace_set(options.scene_trace);}
         else{options.view_border=(options.view_border+direction+3)%3;}
         save_comfort();
@@ -46,13 +46,13 @@ static void reset_page_setting(void){
         if(menu_selected==0)options.two_hand=false;
         else if(menu_selected==1)options.cover_toggle=false;
         else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;}
-        else if(menu_selected==3){options.expanded_weapons=true;csz_weapons_configure(!replay_input,!options.machine_gun);}
+        else if(menu_selected==3){options.expanded_weapons=true;apply_weapon_model();}
         else if(menu_selected==4){options.scene_trace=false;qvr_trace_set(false);qvr_trace_flush();}
         else options.view_border=0;
         reset_fire_input();save_comfort();
     }else if(options_page==1){
         if(menu_selected==0)set_gun_offset(true,0);else if(menu_selected==1)set_gun_offset(false,0);
-        else if(menu_selected==2){options.machine_gun=true;apply_weapon_model();save_comfort();}
+        else if(menu_selected==2){choose_weapon(QWEAPON_MACHINE_GUN);apply_weapon_model();save_comfort();}
         else if(menu_selected==3){options.recoil_strength=75;save_comfort();}
         else if(menu_selected==4){options.haptics=75;save_comfort();}
         else{options.muzzle_flash=true;save_comfort();}

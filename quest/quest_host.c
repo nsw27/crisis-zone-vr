@@ -232,24 +232,36 @@ static void toggle_texture_filter(void){
     fprintf(stderr,"[OPTIONS] texture filtering %s; saved %d\n",options.texture_filtering?"ON":"OFF",options_saved);
 }
 extern int qvr_wide_fov_enabled;
+static QWeapon chosen_weapon(void){
+    return options.expanded_weapons&&options.shotgun?QWEAPON_SHOTGUN:
+           options.machine_gun?QWEAPON_MACHINE_GUN:QWEAPON_HANDGUN;
+}
+static QGunKind weapon_mesh(QWeapon w){return w==QWEAPON_SHOTGUN?QGUN_SHOTGUN:w==QWEAPON_MACHINE_GUN?QGUN_MACHINE_GUN:QGUN_PISTOL;}
+static void choose_weapon(QWeapon w){options.machine_gun=w==QWEAPON_MACHINE_GUN;options.shotgun=w==QWEAPON_SHOTGUN;}
 static void apply_weapon_model(void){
+    if(options.shotgun&&(!options.expanded_weapons||!qgun_available(QGUN_SHOTGUN)))choose_weapon(QWEAPON_MACHINE_GUN);
     if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
-    qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
-    csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);
+    qgun_select(weapon_mesh(chosen_weapon()));
+    csz_weapons_select(options.expanded_weapons&&!replay_input,chosen_weapon());
 }
 /* A gameplay switch must not reset the shield/toggle-cover state. */
 static void cycle_gameplay_weapon(int direction){
     if(!options.expanded_weapons||replay_input||!direction)return;
-    int selected=options.machine_gun?QWEAPON_MACHINE_GUN:QWEAPON_HANDGUN;
-    selected=qweapon_cycle_index(selected,direction,QWEAPON_COUNT);
-    options.machine_gun=selected==QWEAPON_MACHINE_GUN;
+    QWeapon previous=chosen_weapon();int selected=previous;
+    for(int tries=0;tries<QWEAPON_COUNT;tries++){
+        selected=qweapon_cycle_index(selected,direction,QWEAPON_COUNT);
+        if(qgun_available(weapon_mesh((QWeapon)selected)))break;
+    }
+    if(selected==(int)previous||!qgun_available(weapon_mesh((QWeapon)selected)))return;
+    choose_weapon((QWeapon)selected);
     csz_weapons_cancel();stop_weapon_feedback();support_grip=(QSupportGrip){0};
     memset(fire_triggers,0,sizeof fire_triggers);
     shot_pending=shot_needs_release=fire_output_down=false;
     apply_weapon_model();options_saved=qoptions_save(options_path,&options);
 }
 static void toggle_weapon_model(void){
-    options.machine_gun=!options.machine_gun;
+    if(options.expanded_weapons){cycle_gameplay_weapon(1);return;}
+    options.shotgun=false;options.machine_gun=!options.machine_gun;
     reset_fire_input();apply_weapon_model();
     options_saved=qoptions_save(options_path,&options);
     fprintf(stderr,"[OPTIONS] weapon model %s; saved %d\n",options.machine_gun?"MACHINE GUN":"PISTOL",options_saved);
@@ -600,12 +612,12 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
             if(row>=0){menu_selected=row;reset_pitch_input();if(direction)adjust_horizontal(direction);}
         }
     }
-    csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);
+    csz_weapons_select(options.expanded_weapons&&!replay_input,chosen_weapon());
     csz_weapons_sample(focused&&running&&!paused&&head_tracked&&gun_tracked&&available[hand]&&!qvr_scene_is_panel(),
                        pedal>.55f,available[hand]?fire[hand].currentState:NAN);
     /* A confirmed single shot finishes its short recoil envelope even if the
      * physical trigger was already released; it cannot create another shot. */
-    bool single_feedback=csz_weapons_handgun_active()&&!qvr_scene_is_panel();
+    bool single_feedback=csz_weapons_single_active()&&!qvr_scene_is_panel();
     if(paused||!gun_tracked||pedal<=.55f||(!single_feedback&&trigger<=.55f))stop_weapon_feedback();
 }
 
@@ -780,11 +792,11 @@ graphics_ready:
     multiview=false; /* TC2 priority and gamma passes currently render each eye separately. */
 #endif
     if(!qgun_init("models/namco-gun-pink.tcgun")&&!qgun_init("models/namco-gun.tcgun")&&!qgun_init("models/player-gun.tcgun"))goto fail;
+    if(!qgun_load_weapon(QGUN_SHOTGUN,"models/arcade-shotgun.tcgun"))fprintf(stderr,"[GUN] shotgun unavailable; excluded from selection\n");
     if(!qgun_load_weapon(QGUN_MACHINE_GUN,"models/arcade-machine-gun.tcgun")&&!qgun_load_weapon(QGUN_MACHINE_GUN,"models/machine-gun.tcgun"))
         fprintf(stderr,"[GUN] machine gun model unavailable; pistol only\n");
-    if(options.machine_gun&&!qgun_available(QGUN_MACHINE_GUN))options.machine_gun=false;
-    qgun_select(options.machine_gun?QGUN_MACHINE_GUN:QGUN_PISTOL);
-    fprintf(stderr,"[GUN] weapon model %s\n",options.machine_gun?"MACHINE GUN":"PISTOL");
+    apply_weapon_model();
+    fprintf(stderr,"[GUN] weapon model %s\n",chosen_weapon()==QWEAPON_SHOTGUN?"SHOTGUN":options.machine_gun?"MACHINE GUN":"PISTOL");
     if(!qui_init())goto fail;
     qui_set_resolution(options.resolution,eyes[0].w,eyes[0].h);
     if(!tc2_gl_init())goto fail;
@@ -959,7 +971,7 @@ void ss22_input_update(void){
          * Also retain taps shorter than a 59.906 Hz simulation tick. */
         if(shot_needs_release){fire=false;shot_needs_release=false;}
         else if(shot_pending){fire=true;shot_pending=false;}
-        if(!qvr_scene_is_panel()&&csz_weapons_handgun_active())fire=csz_weapons_pending();
+        if(!qvr_scene_is_panel()&&csz_weapons_single_active())fire=csz_weapons_pending();
         if(fire)bits|=0x10;if(pedal>.55f)bits|=0x20;if(coin_frames){if((coin_frames%12)>5)bits|=1;--coin_frames;}
     }
     fire_output_down=(bits&0x10)!=0;
@@ -986,10 +998,10 @@ void ss22_input_rumble(uint16_t lo,uint16_t hi,uint32_t ms){
  * Gate it with the same trigger/cover inputs given to the game. */
 void ss22_out_poll(uint16_t outputs){
     bool confirmed=csz_weapons_feedback();
-    if(csz_weapons_handgun_active()){
+    if(csz_weapons_single_active()){
         if(!focused||!running||paused||!gun_tracked||pedal<=.55f||qvr_scene_is_panel()){stop_weapon_feedback();return;}
         uint64_t now=SDL_GetTicks64();
-        if(confirmed){shot_feedback(now);ss22_input_rumble(0,42000,40);}
+        if(confirmed){bool shotgun=csz_weapons_state()->selected==QWEAPON_SHOTGUN;shot_feedback(now);ss22_input_rumble(0,shotgun?55000:42000,shotgun?60:40);}
         else if(recoil_started&&now-recoil_started>=140)stop_weapon_feedback();
         return;
     }
