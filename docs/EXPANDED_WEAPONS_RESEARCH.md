@@ -6,9 +6,12 @@ full-game/headset tests. No new APK is included in this source change.
 
 ## Player-facing change
 
-Enable **Handling > Expanded weapons**, then click the **physical right stick**
-during play to switch between the existing machine gun and a 12-round handgun.
-The right-stick click retains its existing handedness role while paused.
+Expanded weapons defaults **ON** and can be disabled in **Handling > Expanded weapons**.
+While in shield/cover or physical crouch, move the **physical right stick**
+up/right for next or down/left for previous, then return it to centre.
+The on-screen selector shows confirmed magazines; the right-stick click retains
+its existing handedness role while paused. See `ENHANCED_EDITION.md` for the
+updated cover-only control and attribution pass.
 
 The handgun requires a fresh trigger press for each shot. Holding the trigger does
 not fire automatically. Its minimum recovery is 10 original player-update ticks
@@ -30,7 +33,7 @@ artwork/behaviour are unchanged. Two-hand support remains machine-gun-only, and
 with two-hand mode enabled the support grip stays reserved while switching; it
 cannot accidentally change cover merely because the pistol was selected.
 
-Off by default; no diagnostic collection is required. Replay input does not enable
+On for new/missing settings; an explicitly saved OFF stays off. No diagnostic collection is required. Replay input does not enable
 custom weapons. A mismatched runtime ammunition transition disables custom firing
 rather than guessing. Turning the option off recovers the original weapon path.
 

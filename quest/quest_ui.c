@@ -43,6 +43,18 @@ static void text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
         }
     }
 }
+static void small_text(int x,int y,const char *s,uint8_t r,uint8_t g,uint8_t b){
+    for(;*s;s++,x+=8){
+        unsigned c=(unsigned char)*s;if(c<32||c>127)continue;
+        const uint8_t *glyph=builtin_font+(c-32)*128;
+        for(int row=0;row<8;row++)for(int col=0;col<8;col++){
+            int px=x+col,py=y+row;if(px<0||px>=WIDTH||py<0||py>=HEIGHT)continue;
+            int shade=glyph[row*16+col]>>4;if(shade==15)continue;
+            uint8_t *p=pixels+(py*WIDTH+px)*4;int a=15-shade;
+            p[0]=(r*a+p[0]*shade)/15;p[1]=(g*a+p[1]*shade)/15;p[2]=(b*a+p[2]*shade)/15;p[3]=255;
+        }
+    }
+}
 /* The bundled arcade font has blank < and > glyphs. Draw visible chevrons
  * directly inside the same page-button bounds used by pointer hit testing. */
 static void page_arrow(int cx,int cy,int direction){
@@ -67,7 +79,7 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
     }
     const char *titles[]={"CONTROLS  1/4","WEAPON / COMFORT  2/4","GRAPHICS  3/4","HANDLING / DIAGNOSTICS  4/4"};
     if(page<0||page>=QOPTIONS_PAGE_COUNT)page=0;
-    text(24,20,"CRISIS ZONE VR - PREVIEW 3",255,220,100);text(72,50,titles[page],181,207,220);page_arrow(36,58,-1);page_arrow(604,58,1);
+    text(24,20,"CRISIS ZONE VR - ENHANCED",255,220,100);text(72,50,titles[page],181,207,220);page_arrow(36,58,-1);page_arrow(604,58,1);
     char rows[7][40]={{0}};int count=qoptions_row_count(page);
     if(page==0){
         snprintf(rows[0],40,"GUN ANGLE: %+d DEG",o->gun_pitch);
@@ -108,14 +120,16 @@ static void panel(const QOptions *o,int page,int boot_side,bool saved){
         text(24,298,note,255,202,110);
     }else if(page==QOPTIONS_PAGE_HANDLING){
         text(24,274,"TWO HANDS: OFF-HAND GRIP SUPPORTS",181,207,220);
-        text(24,298,o->expanded_weapons?"RIGHT CLICK: SWITCH WEAPON IN GAME":"WEAPON-HAND GRIP CONTROLS COVER",255,202,110);
+        text(24,298,o->expanded_weapons?"IN COVER: RIGHT STICK SWITCHES GUN":"WEAPON-HAND GRIP CONTROLS COVER",255,202,110);
     }
     text(24,326,"POINT + TRIGGER: SELECT / - / +",181,207,220);
     text(24,352,"LEFT STICK: SELECT / CHANGE PAGE",181,207,220);
     text(24,378,"RIGHT STICK: ADJUST SETTING",181,207,220);
     text(24,404,"LEFT CLICK: RESET SELECTED SETTING",181,207,220);
     text(24,430,"LEFT MENU: RESUME GAME",181,207,220);
-    text(24,456,saved?"SETTINGS SAVED":"SAVE FAILED - CHECK STORAGE",saved?170:255,saved?210:150,150);
+    small_text(24,448,saved?"SETTINGS SAVED":"SAVE FAILED - CHECK STORAGE",saved?170:255,saved?210:150,150);
+    small_text(24,459,"UNOFFICIAL ENHANCEMENTS: THATCHER PRODUCTIONS",181,207,220);
+    small_text(24,470,"ORIGINAL GAME: NAMCO  |  VR PORT: DR-89",155,180,192);
 }
 static GLuint shader(GLenum type,const char *source){
     GLuint s=glCreateShader(type);qgpu_shader_source(s,source);glCompileShader(s);GLint ok;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
@@ -157,4 +171,5 @@ void qui_draw(const float view[16],const float projection[16],V3 head,Q4 rotatio
 }
 
 #include "quest_metrics.inc"
-void qui_shutdown(void){cursor_x=cursor_y=-10;glDeleteTextures(1,&metrics_texture);metrics_texture=0;metrics_dirty=true;glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}
+#include "quest_weapon_selector.inc"
+void qui_shutdown(void){weapon_selector_shutdown();cursor_x=cursor_y=-10;glDeleteTextures(1,&metrics_texture);metrics_texture=0;metrics_dirty=true;glDeleteProgram(program);glDeleteVertexArrays(1,&vao);glDeleteBuffers(1,&vbo);glDeleteTextures(1,&texture);program=vao=vbo=texture=0;last_state=-1;}

@@ -45,7 +45,7 @@ static void reset_page_setting(void){
         if(menu_selected==0)options.two_hand=false;
         else if(menu_selected==1)options.cover_toggle=false;
         else if(menu_selected==2){recenter_requested=true;cover_calibration_pending=true;}
-        else if(menu_selected==3){options.expanded_weapons=false;csz_weapons_configure(false,!options.machine_gun);}
+        else if(menu_selected==3){options.expanded_weapons=true;csz_weapons_configure(!replay_input,!options.machine_gun);}
         else{options.scene_trace=false;qvr_trace_set(false);qvr_trace_flush();}
         reset_fire_input();save_comfort();
     }else if(options_page==1){

@@ -1,4 +1,14 @@
-# Crisis Zone VR
+# Crisis Zone VR - Enhanced
+
+Unofficial enhancements by **Thatcher Productions**, on the VR port by **DR-89
+and contributors** and the reconstruction by **spacestate1/cmcrann**. Original
+game by **Namco**. All existing source, asset and dependency credits are retained.
+
+**Enhanced source candidate:** cover-only right-stick weapon selection, on-screen
+magazine indicator and default-on expanded weapons. This branch is not a new
+headset-tested release. See [Enhanced controls and credits](docs/ENHANCED_EDITION.md).
+The older v0.1.7 information below documents the upstream release, not the current
+candidate. Do not replace a working installation with an unverified build.
 
 Native **Crisis Zone (arcade, World CSZO4 Ver. B)** for **Meta Quest 3** and **Windows OpenXR PCVR**. Built from the Crisis Zone 0.9.0 release of spacestate1/namco22-decompile and the VR host of DR-89/time-crisis-2-vr.
 

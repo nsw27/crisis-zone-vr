@@ -5,6 +5,8 @@ void csz_weapons_configure(bool enabled,bool handgun);
 void csz_weapons_sample(bool active,bool exposed,float trigger);
 void csz_weapons_cancel(void);
 bool csz_weapons_handgun_active(void);
+/* Current live player only: no attract/replay/fault state for weapon selection. */
+bool csz_weapons_selection_ready(void);
 bool csz_weapons_pending(void);
 bool csz_weapons_feedback(void);
 const QWeapons *csz_weapons_state(void);

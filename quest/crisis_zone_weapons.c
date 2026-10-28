@@ -33,6 +33,9 @@ void csz_weapons_sample(bool active,bool exposed,float trigger){
     qweapons_sample(&weapons,active,exposed,trigger);
 }
 void csz_weapons_cancel(void){qweapons_cancel(&weapons);feedback_serial=weapons.shot_serial;}
+bool csz_weapons_selection_ready(void){
+    return weapons.enabled&&weapons.ready&&!weapons.fault&&context_valid&&live_context();
+}
 bool csz_weapons_handgun_active(void){
     return weapons.enabled&&weapons.ready&&context_valid&&live_context()&&weapons.selected==QWEAPON_HANDGUN;
 }

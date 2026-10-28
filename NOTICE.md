@@ -1,5 +1,15 @@
 # Attribution and license scope
 
+## Enhanced edition
+
+**Crisis Zone VR - Enhanced** is an unofficial enhancement fork.
+Enhancements by **Thatcher Productions**. The original VR port is by **DR-89 and
+contributors**, built on the reconstruction by **spacestate1/cmcrann**. The original
+Crisis Zone game and its assets are Namco's; original rights-holder and dependency
+notices below remain intact. The enhancement credit does not claim authorship of
+the original game, reconstruction or VR port, or imply an official release.
+
+
 Crisis Zone VR is an unofficial port for Meta Quest 3 and Windows. It is not
 affiliated with or endorsed by Namco, Bandai Namco, or Meta.
 

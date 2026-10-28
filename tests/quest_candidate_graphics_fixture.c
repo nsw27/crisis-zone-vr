@@ -36,7 +36,7 @@ int main(int argc,char **argv){
      * moving the highlighted row. */
     selected=3;glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
-    unsigned long before_mode=image_hash();o.expanded_weapons=true;
+    unsigned long before_mode=image_hash();o.expanded_weapons=!o.expanded_weapons;
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     qui_draw(v,p,v3(0,0,0),(Q4){0,0,0,1},&o,QOPTIONS_PAGE_HANDLING,1,true);
     assert(image_hash()!=before_mode);o.expanded_weapons=false;

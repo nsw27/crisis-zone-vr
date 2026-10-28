@@ -17,10 +17,11 @@ def test(name,sources,extra=(),links=(),capture=False):
     run(['gcc',*flags,*extra,*[ROOT/s for s in sources],'-Wl,--gc-sections',*libs,*links,'-lm','-o',exe])
     with tempfile.TemporaryDirectory(dir=a.out,prefix=name+'-') as tmp:
         output=run([exe,ROOT] if name=='graphics' else [exe],cwd=tmp,capture_output=capture)
-        if name=='graphics':
+        if name in ('graphics','weapon-selector'):
             import shutil
             for img in Path(tmp).glob('*.ppm'):shutil.copy2(img,a.out/img.name)
     results[name]='passed';return output
+test('weapon-stick',['tests/quest_weapon_stick_fixture.c','quest/quest_options.c'])
 test('weapon-policy',['tests/quest_weapon_rules_fixture.c','quest/crisis_zone_weapons.c'])
 test('gpu-query-protocol',['tests/quest_gpu_timer_fixture.c'])
 test('support',['tests/quest_support_fixture.c','quest/quest_options.c'])
@@ -33,6 +34,7 @@ y=test('rays-reference',['tests/quest_candidate_ray_fixture.c','quest/tc2_scene.
 assert x.stdout==y.stdout,'Accelerated hits differ from exhaustive hits'
 results['ray_comparison']='4096 bit-identical results';results['accelerated_counts']=x.stderr.strip();results['reference_counts']=y.stderr.strip()
 test('host',['tests/quest_candidate_input_fixture.c',*common],['-DTCVR','-DXR_USE_PLATFORM_ANDROID','-DXR_USE_GRAPHICS_API_OPENGL_ES','-I'+str(java/'include'),'-I'+str(java/'include/linux')],['-lSDL2','-lGLESv2','-lEGL'])
+test('weapon-selector',['tests/quest_weapon_selector_fixture.c'],[],['-lGLESv2','-lEGL'])
 test('graphics',['tests/quest_candidate_graphics_fixture.c','quest/quest_ui.c','quest/quest_options.c','quest/quest_gun.c'],[],['-lGLESv2','-lEGL'])
 
 # Real pipeline comparisons include gamma, alpha, stencil, text priorities,

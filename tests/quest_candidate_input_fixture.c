@@ -28,7 +28,7 @@ int main(void){
     focused=false;rate_attempts=0;rate_check_time=0;display_rate_check(30000000000LL);assert(!rate_check_time);
     get_rate=NULL;request_rate=NULL;
     options_path="handedness-test.cfg";qoptions_load(options_path,&options);
-    assert(!options.left_handed);instance=(XrInstance)(uintptr_t)1;session=(XrSession)(uintptr_t)1;
+    options.expanded_weapons=false;assert(!options.left_handed);instance=(XrInstance)(uintptr_t)1;session=(XrSession)(uintptr_t)1;
     running=focused=origin_set=true;assert(actions_init());assert(space_count==2&&binding_count==17);
     for(int h=0;h<2;h++){
         char name[100];const char *prefix=h?"/user/hand/right":"/user/hand/left";
@@ -210,7 +210,7 @@ int main(void){
     paused=false;ss22_out_poll(2);assert(feedback.active);focused=false;ss22_out_poll(2);assert(!feedback.active&&!haptic_active);
     focused=true;gun_tracked=false;ss22_out_poll(2);assert(!feedback.active);
     gun_tracked=true;options.haptics=0;ss22_out_poll(2);assert(feedback.active&&!haptic_active);ss22_input_neutral();assert(!feedback.active);
-    /* Optional weapon mode uses the existing right-stick click only in play.
+    /* Expanded weapons use directional right-stick movement only IN COVER.
      * These host tests model confirmations explicitly; a separate fixture
      * executes the actual lifted ammo/decrement code. */
     memset(tc2_ram,0,sizeof tc2_ram);
@@ -225,13 +225,18 @@ int main(void){
     float old_x=nx,old_y=ny;bool old_off=g_ss22_gun_off;
     unsigned old_gx=g_ss22_gun_x,old_gy=g_ss22_gun_y;
     triggers[RIGHT_HAND]=1;tick();assert(fire_output_down);
-    buttons[id(hand_action)][2]=true;tick();csz_weapons_begin(0x803b4e00);
-    assert(!options.machine_gun&&test_model==QGUN_PISTOL&&pedal==1);
-    for(int i=0;i<30;i++){tick();csz_weapons_begin(0x803b4e00);assert(!fire_output_down&&!csz_weapons_pending()&&pedal==1);}
+    stick_x=1;tick();csz_weapons_begin(0x803b4e00);
+    assert(options.machine_gun&&!weapon_select_visible&&pedal==1); /* exposed: ignored */
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==0&&weapon_select_visible);
+    assert(options.machine_gun); /* entering cover with held direction cannot switch */
+    stick_x=0;tick();stick_x=1;tick();csz_weapons_begin(0x803b4e00);
+    assert(!options.machine_gun&&test_model==QGUN_PISTOL&&pedal==0);
+    for(int i=0;i<30;i++){tick();csz_weapons_begin(0x803b4e00);assert(!fire_output_down&&!csz_weapons_pending()&&pedal==0);}
     assert(nx==old_x&&ny==old_y&&g_ss22_gun_x==old_gx&&g_ss22_gun_y==old_gy&&g_ss22_gun_off==old_off);
     assert(csz_weapons_state()->ammo[1]==12);
-    buttons[id(hand_action)][2]=false;triggers[RIGHT_HAND]=0;tick();triggers[RIGHT_HAND]=1;tick();
-    assert(csz_weapons_pending()&&fire_output_down);
+    stick_x=0;triggers[RIGHT_HAND]=0;tick();
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==1&&!weapon_select_visible);
+    triggers[RIGHT_HAND]=1;tick();assert(csz_weapons_pending()&&fire_output_down);
     TEST_W32(0x80549848,11);csz_weapons_accepted(0x80549844);
     options.haptics=75;ss22_out_poll(0); /* confirmed shot, not cabinet's cover level */
     assert(recoil_started&&haptic_active);uint64_t confirmed_time=recoil_started;
@@ -239,8 +244,10 @@ int main(void){
     triggers[RIGHT_HAND]=1;tick();assert(!csz_weapons_pending()); /* still in cooldown */
     for(int i=0;i<30;i++){tick();csz_weapons_begin(0x803b4e00);assert(!fire_output_down&&!csz_weapons_pending());}
     assert(csz_weapons_state()->ammo[1]==11);
-    click(hand_action,2);csz_weapons_begin(0x803b4e00);assert(options.machine_gun&&pedal==1);
-    click(hand_action,2);csz_weapons_begin(0x803b4e00);assert(!options.machine_gun&&csz_weapons_state()->ammo[1]==11&&pedal==1);
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==0);
+    stick_y=-1;tick();stick_y=0;tick();csz_weapons_begin(0x803b4e00);assert(options.machine_gun&&pedal==0);
+    stick_y=1;tick();stick_y=0;tick();csz_weapons_begin(0x803b4e00);assert(!options.machine_gun&&csz_weapons_state()->ammo[1]==11&&pedal==0);
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==1&&!csz_weapons_pending());
     triggers[RIGHT_HAND]=0;tick();triggers[RIGHT_HAND]=1;tick();assert(csz_weapons_pending());
     focused=false;tick();assert(!csz_weapons_pending()&&!fire_output_down);focused=true;tick();assert(!csz_weapons_pending());
     triggers[RIGHT_HAND]=0;tick(); /* focus loss safely returned toggle-cover to hidden */
@@ -254,8 +261,53 @@ int main(void){
     test_scene_panel=false;paused=true;
     options_page=QOPTIONS_PAGE_HANDLING;menu_selected=3;adjust_horizontal(1);assert(!options.expanded_weapons);
     adjust_horizontal(1);qoptions_load(options_path,&saved);assert(saved.expanded_weapons);
-    reset_page_setting();qoptions_load(options_path,&saved);assert(!saved.expanded_weapons);
+    reset_page_setting();qoptions_load(options_path,&saved);assert(saved.expanded_weapons);
+    /* Direction controls in the real host: each cardinal axis, diagonals,
+     * no auto-repeat, menu/reconnect rearming, replay and disabled mode. */
+    paused=false;focused=running=origin_set=true;test_scene_panel=false;
+    connected[0]=connected[1]=tracked[0]=tracked[1]=true;stick_active=true;
+    options.physical_crouch=false;options.two_hand=false;options.cover_toggle=true;
+    triggers[0]=triggers[1]=grips[0]=grips[1]=0;options.machine_gun=true;
+    options.expanded_weapons=true;select_weapon_hand(RIGHT_HAND);reset_input_edges();
+    csz_weapons_configure(true,false);csz_weapons_init(0x80549844);TEST_W32(0x80549848,40);
+    stick_x=stick_y=0;tick();csz_weapons_begin(0x803b4e00);tick();assert(weapon_select_visible);
+    const float moves[][2]={{1,0},{-1,0},{0,1},{0,-1},{.9f,.7f}};
+    for(unsigned k=0;k<sizeof moves/sizeof *moves;k++){
+        bool was=options.machine_gun;float was_pedal=pedal;
+        unsigned gx=g_ss22_gun_x,gy=g_ss22_gun_y;
+        stick_x=moves[k][0];stick_y=moves[k][1];tick();csz_weapons_begin(0x803b4e00);
+        assert(options.machine_gun!=was&&pedal==was_pedal&&g_ss22_gun_x==gx&&g_ss22_gun_y==gy);
+        for(int n=0;n<40;n++){tick();assert(options.machine_gun!=was);}
+        stick_x=-stick_x;stick_y=-stick_y;tick();assert(options.machine_gun!=was);
+        stick_x=stick_y=0;tick();
+    }
+    bool selected_before=options.machine_gun;
+    click(hand_action,2);assert(options.machine_gun==selected_before); /* no click needed */
+    paused=true;stick_x=1;tick();paused=false;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();stick_active=false;stick_x=1;tick();stick_active=true;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();tracked[RIGHT_HAND]=false;stick_x=1;tick();tracked[RIGHT_HAND]=true;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();focused=false;stick_x=1;tick();focused=true;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();test_scene_panel=true;stick_x=1;tick();test_scene_panel=false;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();replay_input=true;stick_x=1;tick();replay_input=false;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();options.expanded_weapons=false;stick_x=1;tick();options.expanded_weapons=true;tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();stick_x=-1;tick();assert(options.machine_gun!=selected_before);
+    /* A direction held outside cover cannot be consumed on re-entry, even
+     * when both samples occur between original simulation ticks. */
+    stick_x=0;tick();grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==1&&!weapon_select_visible);
+    selected_before=options.machine_gun;stick_x=1;tick();assert(options.machine_gun==selected_before);
+    grips[RIGHT_HAND]=1;tick();grips[RIGHT_HAND]=0;tick();assert(pedal==0&&weapon_select_visible&&options.machine_gun==selected_before);
+    stick_x=0;tick();stick_y=1;tick();assert(options.machine_gun!=selected_before);
+    stick_y=0;tick();selected_before=options.machine_gun;
+    TEST_W32(0x803ba3f4,0);stick_x=1;tick();assert(!weapon_select_visible&&options.machine_gun==selected_before);
+    TEST_W32(0x803ba3f4,0x80549844);tick();assert(options.machine_gun==selected_before);
+    stick_x=0;tick();sync_input(102,false,1.7f);assert(!weapon_select_visible);
+    stick_x=1;tick();assert(options.machine_gun==selected_before);
+    /* Physical ducking uses the same selector context, not an extra shield. */
+    options.physical_crouch=true;cover_calibration_pending=false;qcover_calibrate(&cover,1.7f);
+    stick_x=stick_y=0;sync_input(103,true,1.7f);assert(pedal==1&&!weapon_select_visible);
+    sync_input(104,true,1.0f);assert(pedal==0&&weapon_select_visible);
+    stick_x=-1;sync_input(105,true,1.0f);assert(options.machine_gun!=selected_before);
     #undef TEST_W32
-    puts("PASS: original controls and feedback; optional 12-round host mode, fresh-press weapon switching without changing cover/aim, no held-trigger shots, action/focus recovery and persistence");
+    puts("PASS: original controls and feedback; optional 12-round host mode, cover-only four-direction neutral-rearmed selection, HUD gating, unchanged cover/aim, no held-trigger shots, action/focus recovery and persistence");
     return 0;
 }

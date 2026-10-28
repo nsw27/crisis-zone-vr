@@ -31,6 +31,9 @@
 #include "quest_tracer.h"
 #include "quest_feedback.h"
 #include "crisis_zone_weapons.h"
+#include "quest_weapon_stick.h"
+static QWeaponStick weapon_stick;
+static bool weapon_select_visible;
 #include "quest_support_grip.h"
 #include "quest_render_control.h"
 #include "tc2_game.h"
@@ -190,6 +193,7 @@ static void stop_weapon_feedback(void){
     haptic_active=false;feedback=(QFeedback){0};recoil_started=0;tracer.active=false;
 }
 static void reset_fire_input(void){
+    weapon_stick=(QWeaponStick){0};weapon_select_visible=false;
     csz_weapons_cancel();
     support_grip=(QSupportGrip){0};cover_button_state=(QCoverButton){0};
     stop_weapon_feedback();
@@ -234,9 +238,11 @@ static void apply_weapon_model(void){
     csz_weapons_configure(options.expanded_weapons&&!replay_input,!options.machine_gun);
 }
 /* A gameplay switch must not reset the shield/toggle-cover state. */
-static void cycle_gameplay_weapon(void){
-    if(!options.expanded_weapons||replay_input)return;
-    options.machine_gun=!options.machine_gun;
+static void cycle_gameplay_weapon(int direction){
+    if(!options.expanded_weapons||replay_input||!direction)return;
+    int selected=options.machine_gun?QWEAPON_MACHINE_GUN:QWEAPON_HANDGUN;
+    selected=qweapon_cycle_index(selected,direction,QWEAPON_COUNT);
+    options.machine_gun=selected==QWEAPON_MACHINE_GUN;
     csz_weapons_cancel();stop_weapon_feedback();support_grip=(QSupportGrip){0};
     memset(fire_triggers,0,sizeof fire_triggers);
     shot_pending=shot_needs_release=fire_output_down=false;
@@ -328,7 +334,7 @@ static bool actions_init(void){
        !action(&upper_action,"upper_button","Toggle laser / change cover mode",XR_ACTION_TYPE_BOOLEAN_INPUT,true)||
        !action(&pause_action,"pause","Pause",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
        !action(&hand_action,"weapon_hand","Change weapon hand in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
-       !action(&pitch_action,"gun_angle","Adjust gun angle in options",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
+       !action(&pitch_action,"gun_angle","Settings / covered weapon selection",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
        !action(&pitch_reset_action,"gun_angle_reset","Reset gun angle in options",XR_ACTION_TYPE_BOOLEAN_INPUT,false)||
        !action(&distance_action,"view_distance","Adjust view distance in options",XR_ACTION_TYPE_VECTOR2F_INPUT,false)||
        !action(&haptic_action,"recoil","Gun recoil",XR_ACTION_TYPE_VIBRATION_OUTPUT,true))return false;
@@ -481,7 +487,7 @@ static bool events(void){
     return !quit&&(result==XR_EVENT_UNAVAILABLE||XR(result));
 }
 static void sync_input(XrTime time,bool head_tracked,float head_y){
-    trigger=pedal=0;aim_valid=gun_tracked=false;menu_pointer_visible=false;
+    trigger=pedal=0;aim_valid=gun_tracked=false;menu_pointer_visible=false;weapon_select_visible=false;
     if(!paused||!focused||!head_tracked||!menu_head_valid)menu_click=(QMenuClick){.hand=-1};
     if(!focused){reset_input_edges();return;}
     XrActiveActionSet aset={action_set,XR_NULL_PATH};XrActionsSyncInfo sync={XR_TYPE_ACTIONS_SYNC_INFO};sync.countActiveActionSets=1;sync.activeActionSets=&aset;
@@ -490,7 +496,6 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
     adjust_texture_filter();
     bool change_hand=pressed(hand_action,XR_NULL_PATH,&hand_button);
     if(paused&&change_hand){change_weapon_hand();menu_click=(QMenuClick){.hand=-1};return;}
-    if(!paused&&change_hand&&head_tracked)cycle_gameplay_weapon();
     adjust_gun_pitch(time);
     adjust_view_distance(time);
     /* Face-button roles follow the saved layout, even during trigger handoffs. */
@@ -541,7 +546,6 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         select_weapon_hand(chosen);shot_pending=true;shot_needs_release=fire_output_down;
     }
     int hand=weapon_hand();
-    bool support_enabled=options.two_hand&&options.machine_gun;
     /* In two-hand mode the support grip is reserved for the weapon; only the
      * firing-hand grip operates cover. One-hand defaults remain unchanged. */
     bool cover_one_hand=options.two_hand&&(options.machine_gun||options.expanded_weapons);
@@ -552,6 +556,20 @@ static void sync_input(XrTime time,bool head_tracked,float head_y){
         if(options.physical_crouch){pedal=!cover_calibration_pending&&exposed?1.f:0.f;cover_button_state=(QCoverButton){0};}
         else pedal=qcover_button(&cover_button_state,cover_value,cover_available,options.cover_toggle);
     }else cover_button_state=(QCoverButton){0};
+    /* Resolve cover FIRST. A direction pressed while exposed cannot select a
+     * weapon later just because the shield was raised with the stick held. */
+    weapon_select_visible=options.expanded_weapons&&!replay_input&&running&&!paused&&
+        head_tracked&&tracked[RIGHT_HAND]&&tracked[hand]&&available[hand]&&
+        isfinite(fire[hand].currentState)&&!qvr_scene_is_panel()&&
+        (options.physical_crouch?!cover_calibration_pending:cover_available)&&
+        pedal<=.55f&&csz_weapons_selection_ready();
+    XrActionStateGetInfo switch_get={XR_TYPE_ACTION_STATE_GET_INFO};switch_get.action=pitch_action;
+    XrActionStateVector2f switch_axis={XR_TYPE_ACTION_STATE_VECTOR2F};
+    bool switch_valid=weapon_select_visible&&
+        XR_SUCCEEDED(xrGetActionStateVector2f(session,&switch_get,&switch_axis))&&switch_axis.isActive;
+    int switch_direction=qweapon_stick_step(&weapon_stick,switch_valid,switch_axis.currentState.x,switch_axis.currentState.y);
+    if(switch_direction)cycle_gameplay_weapon(switch_direction);
+    bool support_enabled=options.two_hand&&options.machine_gun;
     if(!available[hand])shot_pending=shot_needs_release=false;
     if(tracked[hand]){
         gun_position=relative_position(locations[hand].pose.position);gun_rotation=relative_rotation(locations[hand].pose.orientation);gun_tracked=true;
@@ -662,7 +680,7 @@ bool tc2_vr_open(void){
     ic.next=&android;
 #endif
     ic.enabledExtensionCount=extension_count;ic.enabledExtensionNames=extensions;
-    strcpy(ic.applicationInfo.applicationName,"Crisis Zone VR");ic.applicationInfo.applicationVersion=1;strcpy(ic.applicationInfo.engineName,"Namco23 VR");ic.applicationInfo.engineVersion=1;ic.applicationInfo.apiVersion=XR_MAKE_VERSION(1,0,34);
+    strcpy(ic.applicationInfo.applicationName,"Crisis Zone VR - Enhanced");ic.applicationInfo.applicationVersion=1;strcpy(ic.applicationInfo.engineName,"Namco23 VR");ic.applicationInfo.engineVersion=1;ic.applicationInfo.apiVersion=XR_MAKE_VERSION(1,0,34);
     REQUIRE(xrCreateInstance(&ic,&instance));
 #ifndef TCVR_PC
     (*env)->DeleteLocalRef(env,activity);
@@ -842,6 +860,7 @@ bool ss22_host_frame(void){
         }
         sync_input(frame.predictedDisplayTime,head_tracked,(views[0].pose.position.y+views[1].pose.position.y)*.5f);
         qui_set_pointer(menu_pointer_x,menu_pointer_y,menu_pointer_visible);
+        qui_weapons_update(csz_weapons_state(),weapon_select_visible);
         qtc2_set_profiling(options.diagnostics);
         options.scene_trace=qvr_trace_active();
         if(paused)qvr_trace_flush();
@@ -880,6 +899,10 @@ bool ss22_host_frame(void){
             qgl_flush();
             parts[2]+=wall_ms()-stage_start;stage_start=wall_ms();
             if(focused&&gun_tracked)qgun_draw(v[i],p[i],gun_position,gun_rotation,recoil,trigger,flash);
+            if(focused&&!paused&&weapon_select_visible){
+                V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
+                qui_draw_weapons(v[i],p[i],head,relative_rotation(views[0].pose.orientation));
+            }
             if(focused&&!paused&&options.diagnostics){
                 V3 head=mul(add(relative_position(views[0].pose.position),relative_position(views[1].pose.position)),.5f);
                 qui_draw_metrics(v[i],p[i],head,relative_rotation(views[0].pose.orientation));

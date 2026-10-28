@@ -6,8 +6,8 @@
 #include <errno.h>
 
 void qoptions_load(const char *path,QOptions *options){
-    /* New/missing settings use laser assistance. Explicit saved OFF stays OFF. */
-    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1,.enhanced=false,.machine_gun=true,.wide_fov=false,.haptics=75,.recoil_strength=75,.muzzle_flash=true};
+    /* Expanded weapons default ON for new/missing settings. Explicit saved OFF stays OFF. */
+    *options=(QOptions){.laser_enabled=true,.texture_filtering=true,.world_scale=QOPTIONS_WORLD_SCALE_DEFAULT,.view_distance=QOPTIONS_VIEW_DISTANCE_DEFAULT,.player_side=1,.enhanced=false,.machine_gun=true,.wide_fov=false,.haptics=75,.recoil_strength=75,.muzzle_flash=true,.expanded_weapons=true};
     FILE *f=fopen(path,"r");if(!f)return;
     char line[128],extra;int value;
     while(fgets(line,sizeof line,f)){
